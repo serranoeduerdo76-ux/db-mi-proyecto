@@ -14,7 +14,7 @@ st.set_page_config(
 )
 
 
-# 2. Utilidad de Encriptación de Contraseñas
+# 2. Utilidad de Encriptación de Contraseñas (SHA-256)
 def hash_password(password: str) -> str:
   return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
@@ -28,13 +28,17 @@ def get_db_connection():
     return None
 
 
-# 4. Inicialización de Tablas (Usuarios y Partidos relacionales)
+# 4. Inicialización y Autolimpieza de la Base de Datos
 def init_db():
   conn = get_db_connection()
   if conn:
     try:
       cur = conn.cursor()
-      # Tabla de Usuarios
+
+      # LÍNEA DE LIMPIEZA TEMPORAL: Borra la tabla obsoleta para evitar incompatibilidades
+      cur.execute("DROP TABLE IF EXISTS partidos CASCADE;")
+
+      # Crear Tabla de Usuarios
       cur.execute("""
                 CREATE TABLE IF NOT EXISTS usuarios (
                     id SERIAL PRIMARY KEY,
@@ -45,7 +49,7 @@ def init_db():
                 );
             """)
 
-      # Tabla de Partidos vinculada a Usuario
+      # Crear Tabla de Partidos (Vinculada al usuario)
       cur.execute("""
                 CREATE TABLE IF NOT EXISTS partidos (
                     id SERIAL PRIMARY KEY,
@@ -64,6 +68,7 @@ def init_db():
       st.error(f"❌ Error al inicializar la base de datos: {e}")
 
 
+# Ejecutar la creación e inicialización de tablas
 init_db()
 
 
@@ -84,12 +89,12 @@ def registrar_usuario(username, nombre, password):
       conn.commit()
       cur.close()
       conn.close()
-      return True, "Usuario registrado exitosamente."
+      return True, "✅ Usuario registrado exitosamente. Ya puedes iniciar sesión."
     except psycopg2.IntegrityError:
-      return False, "El nombre de usuario ya existe. Elija otro."
+      return False, "⚠️ El nombre de usuario ya existe. Intenta con otro."
     except Exception as e:
-      return False, f"Error en el registro: {e}"
-  return False, "Error de conexión."
+      return False, f"❌ Error en el registro: {e}"
+  return False, "❌ Error de conexión a la base de datos."
 
 
 def autenticar_usuario(username, password):
@@ -110,12 +115,12 @@ def autenticar_usuario(username, password):
       conn.close()
       return user
     except Exception as e:
-      st.error(f"Error en inicio de sesión: {e}")
+      st.error(f"Error al intentar iniciar sesión: {e}")
       return None
   return None
 
 
-# 6. Funciones CRUD de Partidos (Filtradas por usuario_id)
+# 6. Funciones CRUD de Partidos (Aisladas por Usuario)
 def cargar_partidos(usuario_id):
   conn = get_db_connection()
   if not conn:
@@ -131,7 +136,7 @@ def cargar_partidos(usuario_id):
     conn.close()
     return df
   except Exception as e:
-    st.error(f"Error al cargar partidos: {e}")
+    st.error(f"Error al cargar registros: {e}")
     return pd.DataFrame()
 
 
@@ -176,30 +181,30 @@ def eliminar_partido(id_partido, usuario_id):
   return False
 
 
-# 7. Control de Estado de Sesión
+# 7. Manejo del Estado de Sesión en Streamlit
 if "authenticated" not in st.session_state:
   st.session_state.authenticated = False
 if "user_info" not in st.session_state:
   st.session_state.user_info = None
 
-# ==========================================
-# MÓDULO 1: PANTALLA DE ACCESO (LOGIN/REGISTRO)
-# ==========================================
+# =========================================================
+# MÓDULO 1: AUTENTICACIÓN (LOGIN Y REGISTRO DE USUARIOS)
+# =========================================================
 if not st.session_state.authenticated:
   st.title("🏀 BasketTracker Cloud")
-  st.caption("Acceso al Sistema de Control Financiero y Registro")
+  st.caption("Sistema de Control Financiero y Registro de Partidos")
 
   tab_login, tab_registro = st.tabs(
       ["🔑 Iniciar Sesión", "📝 Registrar Usuario"]
   )
 
   with tab_login:
-    st.subheader("Ingreso de Usuarios")
+    st.subheader("Ingreso de Operadores")
     with st.form("form_login"):
       user_input = st.text_input("Usuario")
       pass_input = st.text_input("Contraseña", type="password")
       submit_login = st.form_submit_button(
-          "Entrar", use_container_width=True
+          "Entrar al Sistema", use_container_width=True
       )
 
       if submit_login:
@@ -208,7 +213,7 @@ if not st.session_state.authenticated:
           if user_data:
             st.session_state.authenticated = True
             st.session_state.user_info = user_data
-            st.success(f"Bienvenido {user_data['nombre']}")
+            st.success(f"Bienvenido/a, {user_data['nombre']}")
             st.rerun()
           else:
             st.error("Usuario o contraseña incorrectos.")
@@ -216,10 +221,10 @@ if not st.session_state.authenticated:
           st.warning("Por favor complete todos los campos.")
 
   with tab_registro:
-    st.subheader("Crear Nueva Cuenta")
+    st.subheader("Crear Cuenta de Usuario")
     with st.form("form_registro"):
       reg_name = st.text_input("Nombre Completo")
-      reg_user = st.text_input("Nombre de Usuario (Login)")
+      reg_user = st.text_input("Nombre de Usuario (para login)")
       reg_pass1 = st.text_input("Contraseña", type="password")
       reg_pass2 = st.text_input("Confirmar Contraseña", type="password")
       submit_reg = st.form_submit_button(
@@ -240,16 +245,16 @@ if not st.session_state.authenticated:
           else:
             st.error(msg)
 
-# ==========================================
-# MÓDULO 2: PANEL PRINCIPAL (USUARIO AUTENTICADO)
-# ==========================================
+# =========================================================
+# MÓDULO 2: PANEL PRINCIPAL (USUARIO CONECTADO)
+# =========================================================
 else:
   user_id = st.session_state.user_info["id"]
   user_name = st.session_state.user_info["nombre"]
 
-  # Sidebar: Usuario y Filtros
-  st.sidebar.write(f"👤 **Usuario:** {user_name}")
-  if st.sidebar.button("🚪 Cerrar Sesión"):
+  # Sidebar: Información del usuario y Filtros
+  st.sidebar.write(f"👤 **Analista:** {user_name}")
+  if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
     st.session_state.authenticated = False
     st.session_state.user_info = None
     st.rerun()
@@ -270,7 +275,7 @@ else:
       format="%.2f",
   )
 
-  # Cargar datos específicos del usuario
+  # Cargar partidos únicamente del usuario conectado
   df_todos = cargar_partidos(user_id)
 
   if not df_todos.empty:
@@ -303,9 +308,9 @@ else:
   else:
     df_filtrado = pd.DataFrame()
 
-  # Métricas
+  # Métricas Principales (KPIs)
   st.title("🏀 BasketTracker Cloud v1.0.0")
-  st.caption(f"Panel de Control | Operador: {user_name}")
+  st.caption(f"Panel de Trabajo | Usuario: {user_name}")
 
   cant_partidos = len(df_filtrado)
   total_cobrar = (
@@ -319,7 +324,7 @@ else:
 
   st.markdown("---")
 
-  # Formulario de Registro
+  # Formulario para registrar partido
   st.subheader("➕ Registrar Nuevo Partido")
   with st.form("form_registro_partido", clear_on_submit=True):
     col_f1, col_f2, col_f3, col_f4 = st.columns([2, 2, 2, 2])
@@ -358,12 +363,10 @@ else:
             tiempo_input.strip(),
             tarifa_input,
         ):
-          st.success(
-              f"✅ Partido '{codigo_input}' guardado en Neon PostgreSQL."
-          )
+          st.success(f"✅ Partido '{codigo_input}' guardado en Neon PostgreSQL.")
           st.rerun()
 
-  # Tabla y Gestión
+  # Tabla de Visualización y Borrado
   st.markdown("---")
   st.subheader(f"📋 Partidos Registrados ({periodo})")
 
