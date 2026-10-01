@@ -5,7 +5,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import streamlit as st
 
-# 1. Configuración de la página
+# 1. Configuración general de la aplicación
 st.set_page_config(
     page_title="BasketTracker Cloud",
     page_icon="🏀",
@@ -19,7 +19,7 @@ def hash_password(password: str) -> str:
   return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
-# 3. Conexión a Neon PostgreSQL
+# 3. Conexión segura a Neon PostgreSQL
 def get_db_connection():
   try:
     return psycopg2.connect(st.secrets["postgres"]["url"])
@@ -28,17 +28,14 @@ def get_db_connection():
     return None
 
 
-# 4. Inicialización y Autolimpieza de la Base de Datos
+# 4. Inicialización Estable de la Base de Datos
 def init_db():
   conn = get_db_connection()
   if conn:
     try:
       cur = conn.cursor()
 
-      # LÍNEA DE LIMPIEZA TEMPORAL: Borra la tabla obsoleta para evitar incompatibilidades
-      cur.execute("DROP TABLE IF EXISTS partidos CASCADE;")
-
-      # Crear Tabla de Usuarios
+      # Tabla de Usuarios
       cur.execute("""
                 CREATE TABLE IF NOT EXISTS usuarios (
                     id SERIAL PRIMARY KEY,
@@ -49,7 +46,7 @@ def init_db():
                 );
             """)
 
-      # Crear Tabla de Partidos (Vinculada al usuario)
+      # Tabla de Partidos (Vinculada a cada usuario)
       cur.execute("""
                 CREATE TABLE IF NOT EXISTS partidos (
                     id SERIAL PRIMARY KEY,
@@ -65,14 +62,14 @@ def init_db():
       cur.close()
       conn.close()
     except Exception as e:
-      st.error(f"❌ Error al inicializar la base de datos: {e}")
+      st.error(f"❌ Error al inicializar las tablas: {e}")
 
 
-# Ejecutar la creación e inicialización de tablas
+# Verificación e inicialización de estructura
 init_db()
 
 
-# 5. Funciones de Autenticación
+# 5. Módulo de Autenticación de Usuarios
 def registrar_usuario(username, nombre, password):
   conn = get_db_connection()
   if conn:
@@ -91,7 +88,7 @@ def registrar_usuario(username, nombre, password):
       conn.close()
       return True, "✅ Usuario registrado exitosamente. Ya puedes iniciar sesión."
     except psycopg2.IntegrityError:
-      return False, "⚠️ El nombre de usuario ya existe. Intenta con otro."
+      return False, "⚠️️ El nombre de usuario ya existe. Selecciona otro."
     except Exception as e:
       return False, f"❌ Error en el registro: {e}"
   return False, "❌ Error de conexión a la base de datos."
@@ -115,12 +112,12 @@ def autenticar_usuario(username, password):
       conn.close()
       return user
     except Exception as e:
-      st.error(f"Error al intentar iniciar sesión: {e}")
+      st.error(f"Error al verificar credenciales: {e}")
       return None
   return None
 
 
-# 6. Funciones CRUD de Partidos (Aisladas por Usuario)
+# 6. Funciones CRUD de Partidos (Aisladas por usuario_id)
 def cargar_partidos(usuario_id):
   conn = get_db_connection()
   if not conn:
@@ -181,14 +178,14 @@ def eliminar_partido(id_partido, usuario_id):
   return False
 
 
-# 7. Manejo del Estado de Sesión en Streamlit
+# 7. Gestión del Estado de Sesión (Streamlit Session State)
 if "authenticated" not in st.session_state:
   st.session_state.authenticated = False
 if "user_info" not in st.session_state:
   st.session_state.user_info = None
 
 # =========================================================
-# MÓDULO 1: AUTENTICACIÓN (LOGIN Y REGISTRO DE USUARIOS)
+# VISTA 1: PANTALLA DE ACCESO (LOGIN Y REGISTRO)
 # =========================================================
 if not st.session_state.authenticated:
   st.title("🏀 BasketTracker Cloud")
@@ -237,7 +234,7 @@ if not st.session_state.authenticated:
         elif reg_pass1 != reg_pass2:
           st.error("Las contraseñas no coinciden.")
         elif len(reg_pass1) < 6:
-          st.error("La contraseña debe tener al menos 6 caracteres.")
+          st.error("La contraseña debe contener al menos 6 caracteres.")
         else:
           exito, msg = registrar_usuario(reg_user, reg_name, reg_pass1)
           if exito:
@@ -246,13 +243,13 @@ if not st.session_state.authenticated:
             st.error(msg)
 
 # =========================================================
-# MÓDULO 2: PANEL PRINCIPAL (USUARIO CONECTADO)
+# VISTA 2: PANEL PRINCIPAL DE TRABAJO (SESIÓN ACTIVA)
 # =========================================================
 else:
   user_id = st.session_state.user_info["id"]
   user_name = st.session_state.user_info["nombre"]
 
-  # Sidebar: Información del usuario y Filtros
+  # Panel Lateral (Sidebar)
   st.sidebar.write(f"👤 **Analista:** {user_name}")
   if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
     st.session_state.authenticated = False
@@ -275,7 +272,7 @@ else:
       format="%.2f",
   )
 
-  # Cargar partidos únicamente del usuario conectado
+  # Carga de datos filtrados por usuario
   df_todos = cargar_partidos(user_id)
 
   if not df_todos.empty:
@@ -308,9 +305,9 @@ else:
   else:
     df_filtrado = pd.DataFrame()
 
-  # Métricas Principales (KPIs)
+  # Indicadores Clave de Rendimiento (KPIs)
   st.title("🏀 BasketTracker Cloud v1.0.0")
-  st.caption(f"Panel de Trabajo | Usuario: {user_name}")
+  st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
   cant_partidos = len(df_filtrado)
   total_cobrar = (
@@ -324,7 +321,7 @@ else:
 
   st.markdown("---")
 
-  # Formulario para registrar partido
+  # Formulario de Registro de Partidos
   st.subheader("➕ Registrar Nuevo Partido")
   with st.form("form_registro_partido", clear_on_submit=True):
     col_f1, col_f2, col_f3, col_f4 = st.columns([2, 2, 2, 2])
@@ -363,12 +360,12 @@ else:
             tiempo_input.strip(),
             tarifa_input,
         ):
-          st.success(f"✅ Partido '{codigo_input}' guardado en Neon PostgreSQL.")
+          st.success(f"✅ Partido '{codigo_input}' guardado con éxito.")
           st.rerun()
 
-  # Tabla de Visualización y Borrado
+  # Tabla de Datos y Sección de Borrado
   st.markdown("---")
-  st.subheader(f"📋 Partidos Registrados ({periodo})")
+  st.subheader(f"📋 Registros Filtrados ({periodo})")
 
   if not df_filtrado.empty:
     df_display = df_filtrado.copy()
@@ -408,7 +405,7 @@ else:
       if st.button("🔴 Eliminar Registro Seleccionado"):
         id_a_borrar = opciones_eliminar[partido_sel]
         if eliminar_partido(id_a_borrar, user_id):
-          st.success("Registro eliminado exitosamente.")
+          st.success("Registro eliminado correctamente.")
           st.rerun()
   else:
-    st.info(f"ℹ️ No hay partidos registrados para el filtro: {periodo}")
+    st.info(f"ℹ️ No hay partidos registrados en el período: {periodo}")
