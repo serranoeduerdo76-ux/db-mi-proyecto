@@ -5,7 +5,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import streamlit as st
 
-# 1. Configuración general de la aplicación
+# 1. Configuración general de la página
 st.set_page_config(
     page_title="BasketTracker Cloud",
     page_icon="🏀",
@@ -14,27 +14,33 @@ st.set_page_config(
 )
 
 
-# 2. Utilidad de Encriptación de Contraseñas (SHA-256)
+# 2. Encriptación de contraseñas (SHA-256)
 def hash_password(password: str) -> str:
   return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
-# 3. Conexión segura a Neon PostgreSQL
+# 3. Conexión a Neon PostgreSQL con verificación de Secrets
 def get_db_connection():
   try:
+    if "postgres" not in st.secrets or "url" not in st.secrets["postgres"]:
+      st.error(
+          "❌ Error de configuración: La clave '[postgres]' o 'url' no existe"
+          " en Secrets."
+      )
+      return None
     return psycopg2.connect(st.secrets["postgres"]["url"])
   except Exception as e:
-    st.error(f"❌ Error al conectar con Neon PostgreSQL: {e}")
+    st.error(f"❌ Error de conexión a Neon PostgreSQL: {e}")
     return None
 
 
-# 4. Inicialización Estable de la Base de Datos
+# 4. Inicialización optimizada (Se ejecuta una sola vez vía Cache)
+@st.cache_resource
 def init_db():
   conn = get_db_connection()
   if conn:
     try:
       cur = conn.cursor()
-
       # Tabla de Usuarios
       cur.execute("""
                 CREATE TABLE IF NOT EXISTS usuarios (
@@ -45,8 +51,7 @@ def init_db():
                     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-
-      # Tabla de Partidos (Vinculada a cada usuario)
+      # Tabla de Partidos
       cur.execute("""
                 CREATE TABLE IF NOT EXISTS partidos (
                     id SERIAL PRIMARY KEY,
@@ -61,15 +66,18 @@ def init_db():
       conn.commit()
       cur.close()
       conn.close()
+      return True
     except Exception as e:
-      st.error(f"❌ Error al inicializar las tablas: {e}")
+      st.error(f"❌ Error al inicializar tablas: {e}")
+      return False
+  return False
 
 
-# Verificación e inicialización de estructura
+# Ejecutar la verificación inicial
 init_db()
 
 
-# 5. Módulo de Autenticación de Usuarios
+# 5. Funciones de Autenticación
 def registrar_usuario(username, nombre, password):
   conn = get_db_connection()
   if conn:
@@ -88,10 +96,10 @@ def registrar_usuario(username, nombre, password):
       conn.close()
       return True, "✅ Usuario registrado exitosamente. Ya puedes iniciar sesión."
     except psycopg2.IntegrityError:
-      return False, "⚠️️ El nombre de usuario ya existe. Selecciona otro."
+      return False, "⚠️ El nombre de usuario ya existe."
     except Exception as e:
-      return False, f"❌ Error en el registro: {e}"
-  return False, "❌ Error de conexión a la base de datos."
+      return False, f"❌ Error en registro: {e}"
+  return False, "❌ Error de conexión a BD."
 
 
 def autenticar_usuario(username, password):
@@ -112,12 +120,12 @@ def autenticar_usuario(username, password):
       conn.close()
       return user
     except Exception as e:
-      st.error(f"Error al verificar credenciales: {e}")
+      st.error(f"Error al autenticar: {e}")
       return None
   return None
 
 
-# 6. Funciones CRUD de Partidos (Aisladas por usuario_id)
+# 6. Funciones CRUD de Partidos
 def cargar_partidos(usuario_id):
   conn = get_db_connection()
   if not conn:
@@ -131,9 +139,13 @@ def cargar_partidos(usuario_id):
         """
     df = pd.read_sql_query(query, conn, params=(usuario_id,))
     conn.close()
+
+    if not df.empty:
+      df["tarifa"] = pd.to_numeric(df["tarifa"], errors="coerce").fillna(0.0)
+      df["fecha"] = pd.to_datetime(df["fecha"]).dt.date
     return df
   except Exception as e:
-    st.error(f"Error al cargar registros: {e}")
+    st.error(f"Error al cargar partidos: {e}")
     return pd.DataFrame()
 
 
@@ -178,14 +190,14 @@ def eliminar_partido(id_partido, usuario_id):
   return False
 
 
-# 7. Gestión del Estado de Sesión (Streamlit Session State)
+# 7. Manejo del Estado de Sesión
 if "authenticated" not in st.session_state:
   st.session_state.authenticated = False
 if "user_info" not in st.session_state:
   st.session_state.user_info = None
 
 # =========================================================
-# VISTA 1: PANTALLA DE ACCESO (LOGIN Y REGISTRO)
+# VISTA 1: INICIO DE SESIÓN Y REGISTRO
 # =========================================================
 if not st.session_state.authenticated:
   st.title("🏀 BasketTracker Cloud")
@@ -215,13 +227,13 @@ if not st.session_state.authenticated:
           else:
             st.error("Usuario o contraseña incorrectos.")
         else:
-          st.warning("Por favor complete todos los campos.")
+          st.warning("Complete todos los campos.")
 
   with tab_registro:
     st.subheader("Crear Cuenta de Usuario")
     with st.form("form_registro"):
       reg_name = st.text_input("Nombre Completo")
-      reg_user = st.text_input("Nombre de Usuario (para login)")
+      reg_user = st.text_input("Nombre de Usuario")
       reg_pass1 = st.text_input("Contraseña", type="password")
       reg_pass2 = st.text_input("Confirmar Contraseña", type="password")
       submit_reg = st.form_submit_button(
@@ -234,7 +246,7 @@ if not st.session_state.authenticated:
         elif reg_pass1 != reg_pass2:
           st.error("Las contraseñas no coinciden.")
         elif len(reg_pass1) < 6:
-          st.error("La contraseña debe contener al menos 6 caracteres.")
+          st.error("La contraseña debe tener al menos 6 caracteres.")
         else:
           exito, msg = registrar_usuario(reg_user, reg_name, reg_pass1)
           if exito:
@@ -243,13 +255,12 @@ if not st.session_state.authenticated:
             st.error(msg)
 
 # =========================================================
-# VISTA 2: PANEL PRINCIPAL DE TRABAJO (SESIÓN ACTIVA)
+# VISTA 2: PANEL PRINCIPAL DE TRABAJO
 # =========================================================
 else:
   user_id = st.session_state.user_info["id"]
   user_name = st.session_state.user_info["nombre"]
 
-  # Panel Lateral (Sidebar)
   st.sidebar.write(f"👤 **Analista:** {user_name}")
   if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
     st.session_state.authenticated = False
@@ -272,11 +283,9 @@ else:
       format="%.2f",
   )
 
-  # Carga de datos filtrados por usuario
   df_todos = cargar_partidos(user_id)
 
   if not df_todos.empty:
-    df_todos["fecha"] = pd.to_datetime(df_todos["fecha"]).dt.date
     today = date.today()
 
     if periodo == "Hoy":
@@ -305,13 +314,12 @@ else:
   else:
     df_filtrado = pd.DataFrame()
 
-  # Indicadores Clave de Rendimiento (KPIs)
   st.title("🏀 BasketTracker Cloud v1.0.0")
   st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
   cant_partidos = len(df_filtrado)
   total_cobrar = (
-      df_filtrado["tarifa"].sum() if not df_filtrado.empty else 0.00
+      float(df_filtrado["tarifa"].sum()) if not df_filtrado.empty else 0.00
   )
 
   col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
@@ -321,7 +329,7 @@ else:
 
   st.markdown("---")
 
-  # Formulario de Registro de Partidos
+  # Formulario de Entrada
   st.subheader("➕ Registrar Nuevo Partido")
   with st.form("form_registro_partido", clear_on_submit=True):
     col_f1, col_f2, col_f3, col_f4 = st.columns([2, 2, 2, 2])
@@ -363,7 +371,6 @@ else:
           st.success(f"✅ Partido '{codigo_input}' guardado con éxito.")
           st.rerun()
 
-  # Tabla de Datos y Sección de Borrado
   st.markdown("---")
   st.subheader(f"📋 Registros Filtrados ({periodo})")
 
@@ -390,22 +397,51 @@ else:
 
     st.dataframe(df_tabla, use_container_width=True, hide_index=True)
 
-    with st.expander("🗑️ Gestionar / Eliminar Registros"):
-      opciones_eliminar = {
-          f"ID DB: {row['id']} | Partido: {row['codigo_partido']} ({row['fecha']})": row[
-              "id"
-          ]
-          for _, row in df_filtrado.iterrows()
-      }
-      partido_sel = st.selectbox(
-          "Seleccione el registro a eliminar:",
-          options=list(opciones_eliminar.keys()),
+    col_exp1, col_exp2 = st.columns([1, 1])
+
+    # Exportación
+    with col_exp1:
+      df_export = df_display[[
+          "codigo_partido",
+          "fecha",
+          "tiempo_ejecucion",
+          "tarifa",
+      ]].copy()
+      df_export.columns = [
+          "Código Partido",
+          "Fecha",
+          "Tiempo Ejecución",
+          "Tarifa ($)",
+      ]
+      csv_data = df_export.to_csv(index=False).encode("utf-8")
+      filename_periodo = periodo.lower().replace(" ", "_")
+
+      st.download_button(
+          label="📥 Exportar Reporte (CSV / Excel)",
+          data=csv_data,
+          file_name=f"reporte_partidos_{filename_periodo}_{date.today()}.csv",
+          mime="text/csv",
+          use_container_width=True,
       )
 
-      if st.button("🔴 Eliminar Registro Seleccionado"):
-        id_a_borrar = opciones_eliminar[partido_sel]
-        if eliminar_partido(id_a_borrar, user_id):
-          st.success("Registro eliminado correctamente.")
-          st.rerun()
+    # Eliminación
+    with col_exp2:
+      with st.expander("🗑️ Gestionar / Eliminar Registros"):
+        opciones_eliminar = {
+            f"ID DB: {row['id']} | Partido: {row['codigo_partido']} ({row['fecha']})": row[
+                "id"
+            ]
+            for _, row in df_filtrado.iterrows()
+        }
+        partido_sel = st.selectbox(
+            "Seleccione el registro a eliminar:",
+            options=list(opciones_eliminar.keys()),
+        )
+
+        if st.button("🔴 Eliminar Registro Seleccionado"):
+          id_a_borrar = opciones_eliminar[partido_sel]
+          if eliminar_partido(id_a_borrar, user_id):
+            st.success("Registro eliminado correctamente.")
+            st.rerun()
   else:
-    st.info(f"ℹ️ No hay partidos registrados en el período: {periodo}")
+    st.info(f"ℹ️️ No hay partidos registrados en el período: {periodo}")
