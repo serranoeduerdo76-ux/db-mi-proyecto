@@ -5,7 +5,9 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import streamlit as st
 
-# 1. Configuración general de la página
+# =========================================================
+# 1. CONFIGURACIÓN GENERAL DE LA PÁGINA
+# =========================================================
 st.set_page_config(
     page_title="BasketTracker Cloud",
     page_icon="🏀",
@@ -14,12 +16,16 @@ st.set_page_config(
 )
 
 
-# 2. Encriptación de contraseñas (SHA-256)
+# =========================================================
+# 2. SEGURIDAD Y ENCRIPTACIÓN DE CONTRASEÑAS (SHA-256)
+# =========================================================
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
-# 3. Conexión a Neon PostgreSQL con verificación de Secrets
+# =========================================================
+# 3. CONEXIÓN A BASE DE DATOS (NEON POSTGRESQL)
+# =========================================================
 def get_db_connection():
     try:
         if "postgres" not in st.secrets or "url" not in st.secrets["postgres"]:
@@ -33,7 +39,9 @@ def get_db_connection():
         return None
 
 
-# 4. Inicialización optimizada
+# =========================================================
+# 4. INICIALIZACIÓN DE TABLAS EN LA BASE DE DATOS
+# =========================================================
 @st.cache_resource
 def init_db():
     conn = get_db_connection()
@@ -75,7 +83,36 @@ def init_db():
 init_db()
 
 
-# 5. Funciones de Autenticación
+# =========================================================
+# 5. FUNCIONES AUXILIARES: SUMA DE TIEMPOS (HH:MM:SS)
+# =========================================================
+def sumar_tiempos(lista_tiempos):
+    total_segundos = 0
+    for t in lista_tiempos:
+        if not t or not isinstance(t, str):
+            continue
+        partes = t.strip().split(":")
+        try:
+            if len(partes) == 3:  # HH:MM:SS
+                h, m, s = map(int, partes)
+                total_segundos += h * 3600 + m * 60 + s
+            elif len(partes) == 2:  # MM:SS
+                m, s = map(int, partes)
+                total_segundos += m * 60 + s
+            elif len(partes) == 1 and partes[0].isdigit():  # Minutos sueltos
+                total_segundos += int(partes[0]) * 60
+        except ValueError:
+            continue
+
+    horas = total_segundos // 3600
+    minutos = (total_segundos % 3600) // 60
+    segundos = total_segundos % 60
+    return f"{horas:02d}h {minutos:02d}m {segundos:02d}s"
+
+
+# =========================================================
+# 6. GESTIÓN DE AUTENTICACIÓN
+# =========================================================
 def registrar_usuario(username, nombre, password):
     conn = get_db_connection()
     if conn:
@@ -123,7 +160,9 @@ def autenticar_usuario(username, password):
     return None
 
 
-# 6. Lógica de Cálculo de Tarifa Escalonada por Quincena
+# =========================================================
+# 7. TABULADOR DE TARIFAS ESCALONADAS POR QUINCENA
+# =========================================================
 def obtener_rango_quincena(fecha_ref):
     if fecha_ref.day <= 15:
         inicio_q = date(fecha_ref.year, fecha_ref.month, 1)
@@ -159,7 +198,7 @@ def calcular_tarifa_quincenal(usuario_id, fecha_ref):
 
     siguiente_numero = conteo + 1
 
-    # Aplicación del tabulador
+    # Reglas del Tabulador
     if siguiente_numero <= 11:
         return 6.00, siguiente_numero
     elif siguiente_numero <= 14:
@@ -170,7 +209,9 @@ def calcular_tarifa_quincenal(usuario_id, fecha_ref):
         return 8.00, siguiente_numero
 
 
-# 7. Funciones CRUD de Partidos
+# =========================================================
+# 8. OPERACIONES CRUD DE PARTIDOS
+# =========================================================
 def cargar_partidos(usuario_id):
     conn = get_db_connection()
     if not conn:
@@ -188,6 +229,7 @@ def cargar_partidos(usuario_id):
         if not df.empty:
             df["tarifa"] = pd.to_numeric(df["tarifa"], errors="coerce").fillna(0.0)
             df["fecha"] = pd.to_datetime(df["fecha"]).dt.date
+            df["tiempo_ejecucion"] = df["tiempo_ejecucion"].fillna("00:00:00")
         return df
     except Exception as e:
         st.error(f"Error al cargar partidos: {e}")
@@ -235,14 +277,16 @@ def eliminar_partido(id_partido, usuario_id):
     return False
 
 
-# 8. Manejo del Estado de Sesión
+# =========================================================
+# 9. MANEJO DE ESTADO DE SESIÓN
+# =========================================================
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "user_info" not in st.session_state:
     st.session_state.user_info = None
 
 # =========================================================
-# VISTA 1: INICIO DE SESIÓN Y REGISTRO
+# VISTA 1: INICIO DE SESIÓN Y REGISTRO DE USUARIOS
 # =========================================================
 if not st.session_state.authenticated:
     st.title("🏀 BasketTracker Cloud")
@@ -300,7 +344,7 @@ if not st.session_state.authenticated:
                         st.error(msg)
 
 # =========================================================
-# VISTA 2: PANEL PRINCIPAL DE TRABAJO
+# VISTA 2: PANEL PRINCIPAL DE TRABAJO (DASHBOARD)
 # =========================================================
 else:
     user_id = st.session_state.user_info["id"]
@@ -342,31 +386,41 @@ else:
     else:
         df_filtrado = pd.DataFrame()
 
-    st.title("🏀 BasketTracker Cloud v1.1.0")
+    st.title("🏀 BasketTracker Cloud v1.2.0")
     st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
-    # Calcular sugerencia de tarifa automática para el nuevo partido
+    # Cálculo automático de tarifa sugerida
     tarifa_sugerida, num_partido_q = calcular_tarifa_quincenal(user_id, date.today())
 
     st.info(
-        f"💡 **Tabulador Quincenal Activo:** Estás por registrar el **Partido #{num_partido_q}** de esta quincena. "
-        f"Tarifa calculada: **${tarifa_sugerida:.2f}** "
+        f"💡 **Tabulador Quincenal:** Registrarás el **Partido #{num_partido_q}** de la quincena. "
+        f"Siguiente tarifa sugerida: **${tarifa_sugerida:.2f}** "
         f"*(1-11: $6.00 | 12-14: $6.50 | 15-29: $7.00 | 30+: $8.00)*"
     )
 
+    # ---------------------------------------------------------
+    # 📌 PIZARRAS DE TOTALES Y MÉTRICAS (KPIs)
+    # ---------------------------------------------------------
     cant_partidos = len(df_filtrado)
     total_cobrar = (
         float(df_filtrado["tarifa"].sum()) if not df_filtrado.empty else 0.00
     )
+    tiempo_total_str = (
+        sumar_tiempos(df_filtrado["tiempo_ejecucion"].tolist())
+        if not df_filtrado.empty
+        else "00h 00m 00s"
+    )
 
     col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
-    col_kpi1.metric("Juegos Registrados", f"{cant_partidos} partidos")
-    col_kpi2.metric("Siguiente Tarifa Automática", f"${tarifa_sugerida:.2f}")
-    col_kpi3.metric("Monto Total a Cobrar", f"${total_cobrar:.2f}")
+    col_kpi1.metric("🏀 Número de Partidos", f"{cant_partidos} juegos")
+    col_kpi2.metric("⏱️ Tiempo Total Acumulado", tiempo_total_str)
+    col_kpi3.metric("💵 Total a Cobrar Quincena", f"${total_cobrar:.2f}")
 
     st.markdown("---")
 
-    # Formulario de Entrada
+    # ---------------------------------------------------------
+    # FORMULARIO DE REGISTRO
+    # ---------------------------------------------------------
     st.subheader("➕ Registrar Nuevo Partido")
     with st.form("form_registro_partido", clear_on_submit=True):
         col_f1, col_f2, col_f3, col_f4 = st.columns([2, 2, 2, 2])
@@ -379,7 +433,7 @@ else:
             fecha_input = st.date_input("Fecha", value=date.today())
         with col_f3:
             tiempo_input = st.text_input(
-                "Tiempo en hacerlo", placeholder="HH:MM:SS (Ej: 00:45:00)"
+                "Tiempo en hacerlo", placeholder="HH:MM:SS (Ej: 02:20:00)"
             )
         with col_f4:
             tarifa_input = st.number_input(
@@ -405,7 +459,7 @@ else:
                     tiempo_input.strip(),
                     tarifa_input,
                 ):
-                    st.success(f"✅ Partido '{codigo_input}' guardado con éxito (${tarifa_input:.2f}).")
+                    st.success(f"✅ Partido '{codigo_input}' guardado con éxito.")
                     st.rerun()
 
     st.markdown("---")
@@ -436,7 +490,7 @@ else:
 
         col_exp1, col_exp2 = st.columns([1, 1])
 
-        # Exportación
+        # Exportar CSV
         with col_exp1:
             df_export = df_display[[
                 "codigo_partido",
@@ -461,7 +515,7 @@ else:
                 use_container_width=True,
             )
 
-        # Eliminación
+        # Eliminar Registros
         with col_exp2:
             with st.expander("🗑️ Gestionar / Eliminar Registros"):
                 opciones_eliminar = {
@@ -481,4 +535,4 @@ else:
                         st.success("Registro eliminado correctamente.")
                         st.rerun()
     else:
-        st.info(f"ℹ No hay partidos registrados en el período: {periodo}")
+        st.info(f"ℹ️ No hay partidos registrados en el período: {periodo}")
