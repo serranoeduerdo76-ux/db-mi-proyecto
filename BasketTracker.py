@@ -84,7 +84,7 @@ init_db()
 
 
 # =========================================================
-# 5. FUNCIONES AUXILIARES: SUMA DE TIEMPOS (HH:MM:SS)
+# 5. FUNCIONES AUXILIARES: SUMA Y PROMEDIO DE TIEMPOS (HH:MM:SS)
 # =========================================================
 def sumar_tiempos(lista_tiempos):
     total_segundos = 0
@@ -103,7 +103,10 @@ def sumar_tiempos(lista_tiempos):
                 total_segundos += int(partes[0]) * 60
         except ValueError:
             continue
+    return total_segundos
 
+
+def formatear_segundos(total_segundos):
     horas = total_segundos // 3600
     minutos = (total_segundos % 3600) // 60
     segundos = total_segundos % 60
@@ -386,7 +389,7 @@ else:
     else:
         df_filtrado = pd.DataFrame()
 
-    st.title("🏀 BasketTracker Cloud v1.2.0")
+    st.title("🏀 BasketTracker Cloud v1.3.0")
     st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
     # Cálculo automático de tarifa sugerida
@@ -399,22 +402,35 @@ else:
     )
 
     # ---------------------------------------------------------
-    # 📌 PIZARRAS DE TOTALES Y MÉTRICAS (KPIs)
+    # 📌 PIZARRAS DE TOTALES, TIEMPO Y PROMEDIOS (KPIs)
     # ---------------------------------------------------------
     cant_partidos = len(df_filtrado)
     total_cobrar = (
         float(df_filtrado["tarifa"].sum()) if not df_filtrado.empty else 0.00
     )
-    tiempo_total_str = (
+    
+    total_segundos = (
         sumar_tiempos(df_filtrado["tiempo_ejecucion"].tolist())
         if not df_filtrado.empty
-        else "00h 00m 00s"
+        else 0
     )
+    
+    tiempo_total_str = formatear_segundos(total_segundos)
 
-    col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
-    col_kpi1.metric("🏀 Número de Partidos", f"{cant_partidos} juegos")
-    col_kpi2.metric("⏱️ Tiempo Total Acumulado", tiempo_total_str)
-    col_kpi3.metric("💵 Total a Cobrar Quincena", f"${total_cobrar:.2f}")
+    # Cálculo del promedio por partido
+    if cant_partidos > 0:
+        promedio_segundos = total_segundos // cant_partidos
+    else:
+        promedio_segundos = 0
+    
+    promedio_tiempo_str = formatear_segundos(promedio_segundos)
+
+    # Renderizado en 4 columnas de métricas superiores
+    col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
+    col_kpi1.metric("🏀 Partidos", f"{cant_partidos} juegos")
+    col_kpi2.metric("⏱️ Tiempo Total", tiempo_total_str)
+    col_kpi3.metric("📊 Promedio / Juego", promedio_tiempo_str)
+    col_kpi4.metric("💵 Total Quincena", f"${total_cobrar:.2f}")
 
     st.markdown("---")
 
