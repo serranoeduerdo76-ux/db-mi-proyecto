@@ -464,14 +464,23 @@ else:
     username_actual = st.session_state.user_info["username"].lower().strip()
 
     # =========================================================
-    # REGLA ADMIN v2.7.0: Se considera Admin el usuario 'admin', id 1, 
-    # o puedes agregar aquí tu propio nombre de usuario (ej. 'eduardo')
+    # REGLA ADMIN v2.8.0 (FLEXIBLE): 
+    # Tienes acceso de Admin si tu usuario es 'admin', id 1, 
+    # o si quieres marcarte tú mismo como administrador activando 
+    # la casilla de abajo en la barra lateral.
     # =========================================================
-    es_admin = (username_actual == "admin") or (user_id == 1) or (username_actual in ["admin", "eduardorene", "eduardorene300"])
+    es_admin_base = (username_actual == "admin") or (user_id == 1)
 
     st.sidebar.write(f"👤 **Analista:** {user_name}")
+    st.sidebar.caption(f"ID de Usuario: {user_id} | Username: {username_actual}")
+
+    # Interruptor en la barra lateral para otorgar rol de administrador de forma inmediata a tu cuenta actual
+    modo_super_admin = st.sidebar.checkbox("👑 Activar Modo Administrador Global", value=es_admin_base)
+    
+    es_admin = es_admin_base or modo_super_admin
+
     if es_admin:
-        st.sidebar.markdown("👑 **Rol:** Administrador Global")
+        st.sidebar.markdown("👑 **Rol:** Administrador Global Activado")
     else:
         st.sidebar.markdown("🟢 **Rol:** Operador Estándar")
 
@@ -495,7 +504,7 @@ else:
     # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO ADMIN)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
-        st.title("👑 Panel de Administración Global (v2.7.0)")
+        st.title("👑 Panel de Administración Global (v2.8.0)")
         st.caption("Gestión general de usuarios, contraseñas y tabla de precios por partidos")
 
         tab_admin_tasas, tab_admin_usuarios, tab_admin_pass = st.tabs(
@@ -646,7 +655,7 @@ else:
             df_filtrado = pd.DataFrame()
             fecha_ref_historica = date.today()
 
-        st.title("🏀 BasketTracker Cloud v2.7.0")
+        st.title("🏀 BasketTracker Cloud v2.8.0")
         st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
         # Formulario de registro de partidos
@@ -665,7 +674,7 @@ else:
         tarifa_sugerida = obtener_tarifa_unitaria(siguiente_numero)
 
         st.info(
-            f"💡 **Tabulador Quincenal Dinámico (v2.7.0):** Para la fecha seleccionada ({fecha_input}), "
+            f"💡 **Tabulador Quincenal Dinámico (v2.8.0):** Para la fecha seleccionada ({fecha_input}), "
             f"registrarás el **Partido #{siguiente_numero}** de su quincena. "
             f"Tarifa unitaria sugerida: **${tarifa_sugerida:.2f}**"
         )
