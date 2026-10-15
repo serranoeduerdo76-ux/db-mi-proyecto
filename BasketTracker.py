@@ -70,14 +70,14 @@ def init_db():
                     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            # Tabla de Configuración Global (Tasas de pago)
+            # Tabla de Configuración Global (Tasas de pago por tramo)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS configuracion_global (
                     clave VARCHAR(50) PRIMARY KEY,
                     valor NUMERIC(10, 2) NOT NULL
                 );
             """)
-            # Valores por defecto de tasas
+            # Valores por defecto de tasas de pago
             default_tasa = [
                 ("tasa_tramo_1", 6.00),
                 ("tasa_tramo_2", 6.50),
@@ -463,12 +463,17 @@ else:
     user_name = st.session_state.user_info["nombre"]
     username_actual = st.session_state.user_info["username"].lower().strip()
 
-    # Identificar si es admin (usuario 'admin' o id 1)
-    es_admin = username_actual == "admin" or user_id == 1
+    # =========================================================
+    # REGLA ADMIN v2.7.0: Se considera Admin el usuario 'admin', id 1, 
+    # o puedes agregar aquí tu propio nombre de usuario (ej. 'eduardo')
+    # =========================================================
+    es_admin = (username_actual == "admin") or (user_id == 1) or (username_actual in ["admin", "eduardorene", "eduardorene300"])
 
     st.sidebar.write(f"👤 **Analista:** {user_name}")
     if es_admin:
         st.sidebar.markdown("👑 **Rol:** Administrador Global")
+    else:
+        st.sidebar.markdown("🟢 **Rol:** Operador Estándar")
 
     if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
         st.session_state.authenticated = False
@@ -490,36 +495,38 @@ else:
     # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO ADMIN)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
-        st.title("👑 Panel de Administración Global (v2.6.0)")
-        st.caption("Gestión general de usuarios, contraseñas y tasas de pago")
+        st.title("👑 Panel de Administración Global (v2.7.0)")
+        st.caption("Gestión general de usuarios, contraseñas y tabla de precios por partidos")
 
         tab_admin_tasas, tab_admin_usuarios, tab_admin_pass = st.tabs(
-            ["⚙️ Configuración de Tasas", "➕ Registrar Nuevo Usuario", "🔑 Modificar Contraseña de Usuario"]
+            ["⚙️ Tabla de Precios por Partidos", "➕ Registrar Nuevo Usuario", "🔑 Modificar Contraseña de Usuario"]
         )
 
-        # TAB 1: MODIFICACIÓN DE TASAS GLOBALES DE PAGO
+        # TAB 1: MODIFICACIÓN DE LA TABLA DE PRECIOS GLOBALES
         with tab_admin_tasas:
-            st.subheader("⚙️ Configuración Global de Tasas de Pago")
+            st.subheader("⚙️ Modificar Tabla de Precios por Partidos (Tramos)")
+            st.caption("Define el valor unitario por partido según el volumen alcanzado en la quincena para todos los operadores.")
+            
             tasas_actuales = obtener_tasas_globales()
 
             with st.form("form_tasas_globales"):
                 col_t1, col_t2, col_t3, col_t4 = st.columns(4)
                 with col_t1:
-                    nuevo_t1 = st.number_input("Tramo 1 (1-11 J)", value=tasas_actuales["tramo_1"], step=0.25, format="%.2f")
+                    nuevo_t1 = st.number_input("Tramo 1 (1 - 11 Juegos)", value=tasas_actuales["tramo_1"], step=0.25, format="%.2f")
                 with col_t2:
-                    nuevo_t2 = st.number_input("Tramo 2 (12-14 J)", value=tasas_actuales["tramo_2"], step=0.25, format="%.2f")
+                    nuevo_t2 = st.number_input("Tramo 2 (12 - 14 Juegos)", value=tasas_actuales["tramo_2"], step=0.25, format="%.2f")
                 with col_t3:
-                    nuevo_t3 = st.number_input("Tramo 3 (15-29 J)", value=tasas_actuales["tramo_3"], step=0.25, format="%.2f")
+                    nuevo_t3 = st.number_input("Tramo 3 (15 - 29 Juegos)", value=tasas_actuales["tramo_3"], step=0.25, format="%.2f")
                 with col_t4:
-                    nuevo_t4 = st.number_input("Tramo 4 (30+ J)", value=tasas_actuales["tramo_4"], step=0.25, format="%.2f")
+                    nuevo_t4 = st.number_input("Tramo 4 (30+ Juegos)", value=tasas_actuales["tramo_4"], step=0.25, format="%.2f")
 
-                guardar_tasas_btn = st.form_submit_button("💾 Actualizar Tasas Globales", use_container_width=True)
+                guardar_tasas_btn = st.form_submit_button("💾 Guardar Nueva Tabla de Precios", use_container_width=True)
                 if guardar_tasas_btn:
                     actualizar_tasa_global("tasa_tramo_1", nuevo_t1)
                     actualizar_tasa_global("tasa_tramo_2", nuevo_t2)
                     actualizar_tasa_global("tasa_tramo_3", nuevo_t3)
                     actualizar_tasa_global("tasa_tramo_4", nuevo_t4)
-                    st.success("✅ ¡Tasas globales actualizadas con éxito para todo el sistema!")
+                    st.success("✅ ¡Tabla de precios actualizada con éxito para todo el sistema!")
                     st.rerun()
 
         # TAB 2: REGISTRO DE NUEVOS USUARIOS DESDE EL PANEL DE ADMIN
@@ -639,7 +646,7 @@ else:
             df_filtrado = pd.DataFrame()
             fecha_ref_historica = date.today()
 
-        st.title("🏀 BasketTracker Cloud v2.6.0")
+        st.title("🏀 BasketTracker Cloud v2.7.0")
         st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
         # Formulario de registro de partidos
@@ -658,7 +665,7 @@ else:
         tarifa_sugerida = obtener_tarifa_unitaria(siguiente_numero)
 
         st.info(
-            f"💡 **Tabulador Quincenal Dinámico (v2.6.0):** Para la fecha seleccionada ({fecha_input}), "
+            f"💡 **Tabulador Quincenal Dinámico (v2.7.0):** Para la fecha seleccionada ({fecha_input}), "
             f"registrarás el **Partido #{siguiente_numero}** de su quincena. "
             f"Tarifa unitaria sugerida: **${tarifa_sugerida:.2f}**"
         )
