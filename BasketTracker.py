@@ -70,7 +70,7 @@ def init_db():
                     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            # Tabla de Configuración Global (Tasas de pago por tramo)
+            # Tabla de Configuración Global (Tasas de pago por tramo y en vivo)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS configuracion_global (
                     clave VARCHAR(50) PRIMARY KEY,
@@ -83,6 +83,8 @@ def init_db():
                 ("tasa_tramo_2", 6.50),
                 ("tasa_tramo_3", 7.00),
                 ("tasa_tramo_4", 8.00),
+                ("tasa_en_vivo_normal", 12.00),
+                ("tasa_en_vivo_nba", 18.50),
             ]
             for clave, val in default_tasa:
                 cur.execute(
@@ -117,6 +119,8 @@ def obtener_tasas_globales():
         "tramo_2": 6.50,
         "tramo_3": 7.00,
         "tramo_4": 8.00,
+        "en_vivo_normal": 12.00,
+        "en_vivo_nba": 18.50,
     }
     if conn:
         try:
@@ -132,6 +136,10 @@ def obtener_tasas_globales():
                     tasas["tramo_3"] = float(r["valor"])
                 elif r["clave"] == "tasa_tramo_4":
                     tasas["tramo_4"] = float(r["valor"])
+                elif r["clave"] == "tasa_en_vivo_normal":
+                    tasas["en_vivo_normal"] = float(r["valor"])
+                elif r["clave"] == "tasa_en_vivo_nba":
+                    tasas["en_vivo_nba"] = float(r["valor"])
             cur.close()
             conn.close()
         except Exception:
@@ -463,20 +471,12 @@ else:
     user_name = st.session_state.user_info["nombre"]
     username_actual = st.session_state.user_info["username"].lower().strip()
 
-    # =========================================================
-    # REGLA ADMIN v2.8.0 (FLEXIBLE): 
-    # Tienes acceso de Admin si tu usuario es 'admin', id 1, 
-    # o si quieres marcarte tú mismo como administrador activando 
-    # la casilla de abajo en la barra lateral.
-    # =========================================================
     es_admin_base = (username_actual == "admin") or (user_id == 1)
 
     st.sidebar.write(f"👤 **Analista:** {user_name}")
     st.sidebar.caption(f"ID de Usuario: {user_id} | Username: {username_actual}")
 
-    # Interruptor en la barra lateral para otorgar rol de administrador de forma inmediata a tu cuenta actual
     modo_super_admin = st.sidebar.checkbox("👑 Activar Modo Administrador Global", value=es_admin_base)
-    
     es_admin = es_admin_base or modo_super_admin
 
     if es_admin:
@@ -491,7 +491,6 @@ else:
 
     st.sidebar.markdown("---")
     
-    # Menú de navegación lateral si es admin
     if es_admin:
         modo_vista = st.sidebar.radio(
             "🧭 Menú de Navegación:",
@@ -504,21 +503,21 @@ else:
     # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO ADMIN)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
-        st.title("👑 Panel de Administración Global (v2.8.0)")
+        st.title("👑 Panel de Administración Global (v2.8.1)")
         st.caption("Gestión general de usuarios, contraseñas y tabla de precios por partidos")
 
         tab_admin_tasas, tab_admin_usuarios, tab_admin_pass = st.tabs(
             ["⚙️ Tabla de Precios por Partidos", "➕ Registrar Nuevo Usuario", "🔑 Modificar Contraseña de Usuario"]
         )
 
-        # TAB 1: MODIFICACIÓN DE LA TABLA DE PRECIOS GLOBALES
         with tab_admin_tasas:
-            st.subheader("⚙️ Modificar Tabla de Precios por Partidos (Tramos)")
-            st.caption("Define el valor unitario por partido según el volumen alcanzado en la quincena para todos los operadores.")
+            st.subheader("⚙️ Modificar Tabla de Precios por Partidos (Tramos y Juegos en Vivo)")
+            st.caption("Define el valor unitario por partido según el volumen de la quincena y el valor base para juegos en vivo.")
             
             tasas_actuales = obtener_tasas_globales()
 
             with st.form("form_tasas_globales"):
+                st.markdown("##### 📌 Tramos Quincenales Estándar")
                 col_t1, col_t2, col_t3, col_t4 = st.columns(4)
                 with col_t1:
                     nuevo_t1 = st.number_input("Tramo 1 (1 - 11 Juegos)", value=tasas_actuales["tramo_1"], step=0.25, format="%.2f")
@@ -529,16 +528,24 @@ else:
                 with col_t4:
                     nuevo_t4 = st.number_input("Tramo 4 (30+ Juegos)", value=tasas_actuales["tramo_4"], step=0.25, format="%.2f")
 
+                st.markdown("##### ⚡ Juegos en Vivo (Valores para Calculadora)")
+                col_v1, col_v2 = st.columns(2)
+                with col_v1:
+                    nuevo_v_norm = st.number_input("Tarifa Juego en Vivo Normal ($)", value=tasas_actuales["en_vivo_normal"], step=0.50, format="%.2f")
+                with col_v2:
+                    nuevo_v_nba = st.number_input("Tarifa Juego en Vivo NBA ($)", value=tasas_actuales["en_vivo_nba"], step=0.50, format="%.2f")
+
                 guardar_tasas_btn = st.form_submit_button("💾 Guardar Nueva Tabla de Precios", use_container_width=True)
                 if guardar_tasas_btn:
                     actualizar_tasa_global("tasa_tramo_1", nuevo_t1)
                     actualizar_tasa_global("tasa_tramo_2", nuevo_t2)
                     actualizar_tasa_global("tasa_tramo_3", nuevo_t3)
                     actualizar_tasa_global("tasa_tramo_4", nuevo_t4)
+                    actualizar_tasa_global("tasa_en_vivo_normal", nuevo_v_norm)
+                    actualizar_tasa_global("tasa_en_vivo_nba", nuevo_v_nba)
                     st.success("✅ ¡Tabla de precios actualizada con éxito para todo el sistema!")
                     st.rerun()
 
-        # TAB 2: REGISTRO DE NUEVOS USUARIOS DESDE EL PANEL DE ADMIN
         with tab_admin_usuarios:
             st.subheader("➕ Registrar Nuevo Usuario Operador")
             with st.form("form_admin_crear_usuario"):
@@ -566,7 +573,6 @@ else:
                         else:
                             st.error(msg_creacion)
 
-        # TAB 3: MODIFICACIÓN / CAMBIO DE CONTRASEÑA DE CUALQUIER USUARIO
         with tab_admin_pass:
             st.subheader("🔑 Cambiar / Restablecer Contraseña de Usuario")
             df_usuarios_list = obtener_todos_los_usuarios()
@@ -655,7 +661,7 @@ else:
             df_filtrado = pd.DataFrame()
             fecha_ref_historica = date.today()
 
-        st.title("🏀 BasketTracker Cloud v2.8.0")
+        st.title("🏀 BasketTracker Cloud v2.8.1")
         st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
         # Formulario de registro de partidos
@@ -674,7 +680,7 @@ else:
         tarifa_sugerida = obtener_tarifa_unitaria(siguiente_numero)
 
         st.info(
-            f"💡 **Tabulador Quincenal Dinámico (v2.8.0):** Para la fecha seleccionada ({fecha_input}), "
+            f"💡 **Tabulador Quincenal Dinámico:** Para la fecha seleccionada ({fecha_input}), "
             f"registrarás el **Partido #{siguiente_numero}** de su quincena. "
             f"Tarifa unitaria sugerida: **${tarifa_sugerida:.2f}**"
         )
@@ -696,7 +702,38 @@ else:
         st.markdown("---")
 
         # ---------------------------------------------------------
-        # MÉTRICAS Y TOTALES
+        # CALCULADORA DEDICADA DE GANANCIAS SOBRE JUEGOS EN VIVO
+        # ---------------------------------------------------------
+        tasas_v = obtener_tasas_globales()
+        val_normal = tasas_v["en_vivo_normal"]
+        val_nba = tasas_v["en_vivo_nba"]
+
+        with st.expander("⚡ Calculadora de Ganancias sobre Juegos en Vivo", expanded=True):
+            st.caption("Ingresa la cantidad de juegos trabajados en directo para obtener el cálculo inmediato de tus ganancias:")
+            
+            col_calc1, col_calc2 = st.columns(2)
+            with col_calc1:
+                cant_live_normal = st.number_input("Juegos en Vivo Normales", min_value=0, value=0, step=1)
+                st.caption(f"Valor Unitario: **${val_normal:.2f}**")
+            with col_calc2:
+                cant_live_nba = st.number_input("Juegos en Vivo NBA", min_value=0, value=0, step=1)
+                st.caption(f"Valor Unitario: **${val_nba:.2f}**")
+
+            if st.button("🧮 Calcular Ganancias en Vivo", use_container_width=True):
+                subtotal_normal = cant_live_normal * val_normal
+                subtotal_nba = cant_live_nba * val_nba
+                total_live = subtotal_normal + subtotal_nba
+                
+                st.success(
+                    f"💰 **Total Ganancias en Vivo:** ${total_live:.2f} "
+                    f"(Normales: {cant_live_normal} x ${val_normal:.2f} = ${subtotal_normal:.2f} | "
+                    f"NBA: {cant_live_nba} x ${val_nba:.2f} = ${subtotal_nba:.2f})"
+                )
+
+        st.markdown("---")
+
+        # ---------------------------------------------------------
+        # MÉTRICAS Y TOTALES (TABULADOR ESTÁNDAR)
         # ---------------------------------------------------------
         cant_partidos = len(df_filtrado)
 
