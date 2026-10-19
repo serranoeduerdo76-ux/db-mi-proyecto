@@ -58,7 +58,8 @@ def init_db():
                     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            # Tabla de Partidos
+            
+            # Tabla de Partidos con soporte de tipo_partido
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS partidos (
                     id SERIAL PRIMARY KEY,
@@ -67,16 +68,29 @@ def init_db():
                     fecha DATE NOT NULL,
                     tiempo_ejecucion VARCHAR(30),
                     tarifa NUMERIC(10, 2) DEFAULT 0.00,
+                    tipo_partido VARCHAR(30) DEFAULT 'quincenal',
                     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            # Tabla de Configuración Global (Tasas de pago por tramo y en vivo)
+
+            # Migración automática si la columna tipo_partido no existe aún
+            cur.execute("""
+                DO $$ 
+                BEGIN 
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='partidos' AND column_name='tipo_partido') THEN
+                        ALTER TABLE partidos ADD COLUMN tipo_partido VARCHAR(30) DEFAULT 'quincenal';
+                    END IF;
+                END $$;
+            """)
+
+            # Tabla de Configuración Global
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS configuracion_global (
                     clave VARCHAR(50) PRIMARY KEY,
                     valor NUMERIC(10, 2) NOT NULL
                 );
             """)
+
             # Valores por defecto de tasas de pago
             default_tasa = [
                 ("tasa_tramo_1", 6.00),
@@ -168,16 +182,21 @@ def actualizar_tasa_global(clave, nuevo_valor):
     return False
 
 
-def obtener_tarifa_unitaria(cant_partidos):
+def obtener_tarifa_unitaria(tipo_partido, cant_partidos=0):
     tasas = obtener_tasas_globales()
-    if cant_partidos <= 11:
-        return tasas["tramo_1"]
-    elif cant_partidos <= 14:
-        return tasas["tramo_2"]
-    elif cant_partidos <= 29:
-        return tasas["tramo_3"]
+    if tipo_partido == "en_vivo_nba":
+        return tasas["en_vivo_nba"]
+    elif tipo_partido == "en_vivo_normal":
+        return tasas["en_vivo_normal"]
     else:
-        return tasas["tramo_4"]
+        if cant_partidos <= 11:
+            return tasas["tramo_1"]
+        elif cant_partidos <= 14:
+            return tasas["tramo_2"]
+        elif cant_partidos <= 29:
+            return tasas["tramo_3"]
+        else:
+            return tasas["tramo_4"]
 
 
 # =========================================================
@@ -208,12 +227,6 @@ def formatear_segundos(total_segundos):
     minutos = (total_segundos % 3600) // 60
     segundos = total_segundos % 60
     return f"{horas:02d}h {minutos:02d}m {segundos:02d}s"
-
-
-def calcular_monto_quincenal_blindado(cant_partidos):
-    tarifa_uni = obtener_tarifa_unitaria(cant_partidos)
-    total_monto = float(cant_partidos) * float(tarifa_uni)
-    return total_monto, tarifa_uni
 
 
 def registrar_usuario(username, nombre, password):
@@ -328,7 +341,7 @@ def obtener_conteo_quincena_por_fecha(usuario_id, fecha_ref):
             cur.execute(
                 """
                 SELECT COUNT(*) FROM partidos 
-                WHERE usuario_id = %s AND fecha >= %s AND fecha <= %s;
+                WHERE usuario_id = %s AND fecha >= %s AND fecha <= %s AND (tipo_partido IS NULL OR tipo_partido = 'quincenal');
             """,
                 (usuario_id, inicio_q, fin_q),
             )
@@ -346,7 +359,7 @@ def cargar_partidos(usuario_id):
         return pd.DataFrame()
     try:
         query = """
-            SELECT id, codigo_partido, fecha, tiempo_ejecucion, tarifa, creado_en 
+            SELECT id, codigo_partido, fecha, tiempo_ejecucion, tarifa, tipo_partido, creado_en 
             FROM partidos 
             WHERE usuario_id = %s 
             ORDER BY fecha DESC, id DESC;
@@ -357,22 +370,23 @@ def cargar_partidos(usuario_id):
             df["tarifa"] = pd.to_numeric(df["tarifa"], errors="coerce").fillna(0.0)
             df["fecha"] = pd.to_datetime(df["fecha"]).dt.date
             df["tiempo_ejecucion"] = df["tiempo_ejecucion"].fillna("00:00:00")
+            df["tipo_partido"] = df["tipo_partido"].fillna("quincenal")
         return df
     except Exception:
         return pd.DataFrame()
 
 
-def guardar_partido(usuario_id, codigo, fecha_val, tiempo_val, tarifa_val):
+def guardar_partido(usuario_id, codigo, fecha_val, tiempo_val, tarifa_val, tipo_partido):
     conn = get_db_connection()
     if conn:
         try:
             cur = conn.cursor()
             cur.execute(
                 """
-                INSERT INTO partidos (usuario_id, codigo_partido, fecha, tiempo_ejecucion, tarifa)
-                VALUES (%s, %s, %s, %s, %s);
+                INSERT INTO partidos (usuario_id, codigo_partido, fecha, tiempo_ejecucion, tarifa, tipo_partido)
+                VALUES (%s, %s, %s, %s, %s, %s);
             """,
-                (usuario_id, codigo, fecha_val, tiempo_val, tarifa_val),
+                (usuario_id, codigo, fecha_val, tiempo_val, tarifa_val, tipo_partido),
             )
             conn.commit()
             cur.close()
@@ -503,7 +517,7 @@ else:
     # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO ADMIN)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
-        st.title("👑 Panel de Administración Global (v2.8.1)")
+        st.title("👑 Panel de Administración Global (v2.9.1)")
         st.caption("Gestión general de usuarios, contraseñas y tabla de precios por partidos")
 
         tab_admin_tasas, tab_admin_usuarios, tab_admin_pass = st.tabs(
@@ -511,13 +525,13 @@ else:
         )
 
         with tab_admin_tasas:
-            st.subheader("⚙️ Modificar Tabla de Precios por Partidos (Tramos y Juegos en Vivo)")
-            st.caption("Define el valor unitario por partido según el volumen de la quincena y el valor base para juegos en vivo.")
+            st.subheader("⚙️ Modificar Tabla de Precios por Partidos")
+            st.caption("Configura las tarifas quincenales por tramo y los montos fijos para juegos en vivo.")
             
             tasas_actuales = obtener_tasas_globales()
 
             with st.form("form_tasas_globales"):
-                st.markdown("##### 📌 Tramos Quincenales Estándar")
+                st.markdown("##### 📌 Tramos Quincenales (Partidos Estándar)")
                 col_t1, col_t2, col_t3, col_t4 = st.columns(4)
                 with col_t1:
                     nuevo_t1 = st.number_input("Tramo 1 (1 - 11 Juegos)", value=tasas_actuales["tramo_1"], step=0.25, format="%.2f")
@@ -528,14 +542,14 @@ else:
                 with col_t4:
                     nuevo_t4 = st.number_input("Tramo 4 (30+ Juegos)", value=tasas_actuales["tramo_4"], step=0.25, format="%.2f")
 
-                st.markdown("##### ⚡ Juegos en Vivo (Valores para Calculadora)")
+                st.markdown("##### ⚡ Partidos Especiales / En Vivo")
                 col_v1, col_v2 = st.columns(2)
                 with col_v1:
                     nuevo_v_norm = st.number_input("Tarifa Juego en Vivo Normal ($)", value=tasas_actuales["en_vivo_normal"], step=0.50, format="%.2f")
                 with col_v2:
                     nuevo_v_nba = st.number_input("Tarifa Juego en Vivo NBA ($)", value=tasas_actuales["en_vivo_nba"], step=0.50, format="%.2f")
 
-                guardar_tasas_btn = st.form_submit_button("💾 Guardar Nueva Tabla de Precios", use_container_width=True)
+                guardar_tasas_btn = st.form_submit_button("💾 Guardar Tabla de Precios", use_container_width=True)
                 if guardar_tasas_btn:
                     actualizar_tasa_global("tasa_tramo_1", nuevo_t1)
                     actualizar_tasa_global("tasa_tramo_2", nuevo_t2)
@@ -543,7 +557,7 @@ else:
                     actualizar_tasa_global("tasa_tramo_4", nuevo_t4)
                     actualizar_tasa_global("tasa_en_vivo_normal", nuevo_v_norm)
                     actualizar_tasa_global("tasa_en_vivo_nba", nuevo_v_nba)
-                    st.success("✅ ¡Tabla de precios actualizada con éxito para todo el sistema!")
+                    st.success("✅ ¡Tabla de precios actualizada con éxito!")
                     st.rerun()
 
         with tab_admin_usuarios:
@@ -661,12 +675,20 @@ else:
             df_filtrado = pd.DataFrame()
             fecha_ref_historica = date.today()
 
-        st.title("🏀 BasketTracker Cloud v2.8.1")
+        st.title("🏀 BasketTracker Cloud v2.9.1")
         st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
-        # Formulario de registro de partidos
+        # Formulario de registro de partidos con selección directa de Modalidad
         st.subheader("➕ Registrar Nuevo Partido")
         
+        col_m1, col_m2 = st.columns([2, 2])
+        with col_m1:
+            modalidad_sel = st.radio(
+                "Tipo / Modalidad de Partido:",
+                ["🏀 Quincenal Estándar (Tabulador)", "⚡ En Vivo Normal ($12.00)", "🔥 En Vivo NBA ($18.50)"],
+                horizontal=False
+            )
+
         col_f_fecha, col_f_id, col_f_tiempo = st.columns([2, 2, 2])
         with col_f_fecha:
             fecha_input = st.date_input("Fecha del Partido", value=date.today())
@@ -675,15 +697,25 @@ else:
         with col_f_tiempo:
             tiempo_input = st.text_input("Tiempo de Ejecución", placeholder="HH:MM:SS (Ej: 02:20:00)")
 
-        conteo_quincena_form = obtener_conteo_quincena_por_fecha(user_id, fecha_input)
-        siguiente_numero = conteo_quincena_form + 1
-        tarifa_sugerida = obtener_tarifa_unitaria(siguiente_numero)
-
-        st.info(
-            f"💡 **Tabulador Quincenal Dinámico:** Para la fecha seleccionada ({fecha_input}), "
-            f"registrarás el **Partido #{siguiente_numero}** de su quincena. "
-            f"Tarifa unitaria sugerida: **${tarifa_sugerida:.2f}**"
-        )
+        # Lógica de asignación de tarifas
+        tasas_v = obtener_tasas_globales()
+        if "En Vivo NBA" in modalidad_sel:
+            tipo_guardar = "en_vivo_nba"
+            tarifa_sugerida = tasas_v["en_vivo_nba"]
+            st.info(f"🔥 **Modalidad En Vivo NBA:** Se asignará una tarifa fija de **${tarifa_sugerida:.2f}** a este partido.")
+        elif "En Vivo Normal" in modalidad_sel:
+            tipo_guardar = "en_vivo_normal"
+            tarifa_sugerida = tasas_v["en_vivo_normal"]
+            st.info(f"⚡ **Modalidad En Vivo Normal:** Se asignará una tarifa fija de **${tarifa_sugerida:.2f}** a este partido.")
+        else:
+            tipo_guardar = "quincenal"
+            conteo_quincena_form = obtener_conteo_quincena_por_fecha(user_id, fecha_input)
+            siguiente_numero = conteo_quincena_form + 1
+            tarifa_sugerida = obtener_tarifa_unitaria("quincenal", siguiente_numero)
+            st.info(
+                f"💡 **Tabulador Quincenal Estándar:** Corresponde al **Partido #{siguiente_numero}** de la quincena. "
+                f"Tarifa unitaria recomendada: **${tarifa_sugerida:.2f}**"
+            )
 
         if st.button("💾 Guardar Partido en la Base de Datos", use_container_width=True):
             if not codigo_input.strip():
@@ -695,52 +727,22 @@ else:
                     fecha_input,
                     tiempo_input.strip(),
                     tarifa_sugerida,
+                    tipo_guardar,
                 ):
-                    st.success(f"✅ Partido '{codigo_input}' guardado con éxito.")
+                    st.success(f"✅ Partido '{codigo_input}' guardado exitosamente como {tipo_guardar.upper()}.")
                     st.rerun()
 
         st.markdown("---")
 
         # ---------------------------------------------------------
-        # CALCULADORA DEDICADA DE GANANCIAS SOBRE JUEGOS EN VIVO
-        # ---------------------------------------------------------
-        tasas_v = obtener_tasas_globales()
-        val_normal = tasas_v["en_vivo_normal"]
-        val_nba = tasas_v["en_vivo_nba"]
-
-        with st.expander("⚡ Calculadora de Ganancias sobre Juegos en Vivo", expanded=True):
-            st.caption("Ingresa la cantidad de juegos trabajados en directo para obtener el cálculo inmediato de tus ganancias:")
-            
-            col_calc1, col_calc2 = st.columns(2)
-            with col_calc1:
-                cant_live_normal = st.number_input("Juegos en Vivo Normales", min_value=0, value=0, step=1)
-                st.caption(f"Valor Unitario: **${val_normal:.2f}**")
-            with col_calc2:
-                cant_live_nba = st.number_input("Juegos en Vivo NBA", min_value=0, value=0, step=1)
-                st.caption(f"Valor Unitario: **${val_nba:.2f}**")
-
-            if st.button("🧮 Calcular Ganancias en Vivo", use_container_width=True):
-                subtotal_normal = cant_live_normal * val_normal
-                subtotal_nba = cant_live_nba * val_nba
-                total_live = subtotal_normal + subtotal_nba
-                
-                st.success(
-                    f"💰 **Total Ganancias en Vivo:** ${total_live:.2f} "
-                    f"(Normales: {cant_live_normal} x ${val_normal:.2f} = ${subtotal_normal:.2f} | "
-                    f"NBA: {cant_live_nba} x ${val_nba:.2f} = ${subtotal_nba:.2f})"
-                )
-
-        st.markdown("---")
-
-        # ---------------------------------------------------------
-        # MÉTRICAS Y TOTALES (TABULADOR ESTÁNDAR)
+        # MÉTRICAS Y TOTALES (CÁLCULO EXACTO POR REGISTROS)
         # ---------------------------------------------------------
         cant_partidos = len(df_filtrado)
 
-        if periodo == "Esta Quincena" and not df_filtrado.empty:
-            total_cobrar, tarifa_vigente_lote = calcular_monto_quincenal_blindado(cant_partidos)
-        else:
-            total_cobrar = float(df_filtrado["tarifa"].sum()) if not df_filtrado.empty else 0.00
+        # Recalcular ganancia total de forma exacta según los partidos guardados
+        total_cobrar = 0.0
+        if not df_filtrado.empty:
+            total_cobrar = float(df_filtrado["tarifa"].sum())
 
         total_segundos = (
             sumar_tiempos(df_filtrado["tiempo_ejecucion"].tolist())
@@ -759,28 +761,30 @@ else:
         col_kpi1.metric("🏀 Partidos", f"{cant_partidos} juegos")
         col_kpi2.metric("⏱️ Tiempo Total", tiempo_total_str)
         col_kpi3.metric("📊 Promedio / Juego", promedio_tiempo_str)
-        col_kpi4.metric("💵 Total Quincena", f"${total_cobrar:.2f}")
+        col_kpi4.metric("💵 Total Ganancias", f"${total_cobrar:.2f}")
 
         st.markdown("---")
         st.subheader(f"📋 Registros Filtrados ({periodo})")
 
         if not df_filtrado.empty:
             df_display = df_filtrado.copy()
-            
-            if periodo == "Esta Quincena":
-                tarifa_actual_lote = obtener_tarifa_unitaria(len(df_display))
-                df_display["tarifa_efectiva"] = tarifa_actual_lote
-            else:
-                df_display["tarifa_efectiva"] = df_display["tarifa"]
 
-            df_display["tarifa_fmt"] = df_display["tarifa_efectiva"].apply(
-                lambda x: f"${float(x):.2f}"
-            )
+            def formato_tipo(t):
+                if t == "en_vivo_nba":
+                    return "🔥 En Vivo NBA"
+                elif t == "en_vivo_normal":
+                    return "⚡ En Vivo Normal"
+                else:
+                    return "🏀 Quincenal Estándar"
+
+            df_display["Modalidad"] = df_display["tipo_partido"].apply(formato_tipo)
+            df_display["tarifa_fmt"] = df_display["tarifa"].apply(lambda x: f"${float(x):.2f}")
 
             df_tabla = df_display[[
                 "id",
                 "codigo_partido",
                 "fecha",
+                "Modalidad",
                 "tiempo_ejecucion",
                 "tarifa_fmt",
             ]].copy()
@@ -788,8 +792,9 @@ else:
                 "ID DB",
                 "Código / Partido",
                 "Fecha",
+                "Modalidad",
                 "Tiempo de Ejecución",
-                "Tarifa Unitaria ($)",
+                "Tarifa ($)",
             ]
 
             st.dataframe(df_tabla, use_container_width=True, hide_index=True)
@@ -800,14 +805,16 @@ else:
                 df_export = df_display[[
                     "codigo_partido",
                     "fecha",
+                    "Modalidad",
                     "tiempo_ejecucion",
-                    "tarifa_efectiva",
+                    "tarifa",
                 ]].copy()
                 df_export.columns = [
                     "Código Partido",
                     "Fecha",
+                    "Modalidad",
                     "Tiempo Ejecución",
-                    "Tarifa Unitaria ($)",
+                    "Tarifa ($)",
                 ]
                 csv_data = df_export.to_csv(index=False).encode("utf-8")
                 filename_periodo = periodo.lower().replace(" ", "_")
