@@ -491,8 +491,7 @@ else:
     user_name = st.session_state.user_info["nombre"]
     username_actual = st.session_state.user_info["username"].lower().strip()
 
-    # 🔒 BLINDAJE DE SEGURIDAD EXCLUSIVO:
-    # Vinculado estrictamente a tu usuario personal 'geremo01'
+    # 🔒 BLINDAJE DE SEGURIDAD EXCLUSIVO PARA geremo01
     USUARIO_ADMIN_PRINCIPAL = "geremo01"
 
     es_admin = (username_actual == USUARIO_ADMIN_PRINCIPAL)
@@ -521,7 +520,7 @@ else:
         modo_vista = "📊 Mi Panel de Partidos"
 
     # =========================================================
-    # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO ADMIN EXCLUSIVO: geremo01)
+    # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO geremo01)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
         st.title("👑 Panel de Administración Global (v2.9.1)")
@@ -742,7 +741,7 @@ else:
         st.markdown("---")
 
         # ---------------------------------------------------------
-        # MÉTRICAS Y TOTALES (CÁLCULO EXACTO POR REGISTROS)
+        # MÉTRICAS Y TOTALES (CÁLCULO EXACTO POR REGISTROS / PAGOS)
         # ---------------------------------------------------------
         cant_partidos = len(df_filtrado)
 
