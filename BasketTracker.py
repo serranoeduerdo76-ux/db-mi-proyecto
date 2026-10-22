@@ -1,4 +1,4 @@
-afrom datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta
 import hashlib
 import pandas as pd
 import psycopg2
