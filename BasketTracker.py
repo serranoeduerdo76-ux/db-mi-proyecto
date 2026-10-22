@@ -16,7 +16,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Estilos CSS personalizados para mejorar la visibilidad de métricas y botones
 st.markdown("""
     <style>
     .main .block-container {
@@ -40,7 +39,7 @@ st.markdown("""
 # 2. SEGURIDAD Y ENCRIPTACIÓN DE CONTRASEÑAS (SHA-256)
 # =========================================================
 def hash_password(password: str) -> str:
-    """Genera un hash SHA-256 seguro a partir de una cadena de texto."""
+    """Genera un hash SHA-256 seguro a partir de una contraseña."""
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
@@ -48,7 +47,7 @@ def hash_password(password: str) -> str:
 # 3. CONEXIÓN A BASE DE DATOS (NEON POSTGRESQL)
 # =========================================================
 def get_db_connection():
-    """Establece conexión con Neon PostgreSQL con tiempo de espera seguro."""
+    """Establece conexión segura con Neon PostgreSQL."""
     try:
         if "postgres" not in st.secrets or "url" not in st.secrets["postgres"]:
             st.error("❌ Error de configuración: La clave '[postgres]' o 'url' no existe en Secrets.")
@@ -217,7 +216,7 @@ def obtener_tarifa_unitaria(tipo_partido, cant_partidos=0):
 
 
 # =========================================================
-# 6. FUNCIONES AUXILIARES DE TIEMPOS Y QUINCENAS
+# 6. FUNCIONES AUXILIARES DE TIEMPOS Y QUINCENAS (BLINDADAS)
 # =========================================================
 def sumar_tiempos(lista_tiempos):
     """Suma cadenas de tiempo (HH:MM:SS) convirtiéndolas a segundos totales de forma segura."""
@@ -255,21 +254,28 @@ def formatear_segundos(total_segundos):
 
 
 def obtener_rango_quincena(fecha_ref):
-    """Devuelve los límites (inicio y fin) de la quincena correspondiente a una fecha."""
-    if fecha_ref.day <= 15:
-        inicio_q = date(fecha_ref.year, fecha_ref.month, 1)
-        fin_q = date(fecha_ref.year, fecha_ref.month, 15)
-    else:
-        inicio_q = date(fecha_ref.year, fecha_ref.month, 16)
-        if fecha_ref.month == 12:
-            fin_q = date(fecha_ref.year, 12, 31)
+    """Devuelve los límites (inicio y fin) de la quincena correspondiente de forma segura."""
+    try:
+        if not isinstance(fecha_ref, (date, datetime)):
+            fecha_ref = date.today()
+        
+        if fecha_ref.day <= 15:
+            inicio_q = date(fecha_ref.year, fecha_ref.month, 1)
+            fin_q = date(fecha_ref.year, fecha_ref.month, 15)
         else:
-            fin_q = date(fecha_ref.year, fecha_ref.month + 1, 1) - timedelta(days=1)
-    return inicio_q, fin_q
+            inicio_q = date(fecha_ref.year, fecha_ref.month, 16)
+            if fecha_ref.month == 12:
+                fin_q = date(fecha_ref.year, 12, 31)
+            else:
+                fin_q = date(fecha_ref.year, fecha_ref.month + 1, 1) - timedelta(days=1)
+        return inicio_q, fin_q
+    except Exception:
+        hoy = date.today()
+        return date(hoy.year, hoy.month, 1), date(hoy.year, hoy.month, 15)
 
 
 def obtener_conteo_quincena_por_fecha(usuario_id, fecha_ref):
-    """Cuenta cuántos partidos quincenales estándar se registraron en la quincena de la fecha dada."""
+    """Cuenta cuántos partidos quincenales estándar se registraron en la quincena correspondiente."""
     inicio_q, fin_q = obtener_rango_quincena(fecha_ref)
     conn = get_db_connection()
     conteo = 0
@@ -295,7 +301,7 @@ def obtener_conteo_quincena_por_fecha(usuario_id, fecha_ref):
 # 7. GESTIÓN DE USUARIOS Y AUTENTICACIÓN
 # =========================================================
 def registrar_usuario(username, nombre, password):
-    """Registra una nueva cuenta de operador en la base de datos."""
+    """Registra una nueva cuenta de operador."""
     conn = get_db_connection()
     if conn:
         try:
@@ -317,7 +323,7 @@ def registrar_usuario(username, nombre, password):
 
 
 def cambiar_password_usuario(usuario_id, nueva_password):
-    """Permite al Administrador restablecer la contraseña de un usuario."""
+    """Restablece la contraseña de un usuario."""
     conn = get_db_connection()
     if conn:
         try:
@@ -334,7 +340,7 @@ def cambiar_password_usuario(usuario_id, nueva_password):
 
 
 def autenticar_usuario(username, password):
-    """Verifica las credenciales de un usuario al iniciar sesión."""
+    """Verifica credenciales de acceso."""
     conn = get_db_connection()
     if conn:
         try:
@@ -355,7 +361,7 @@ def autenticar_usuario(username, password):
 
 
 def obtener_todos_los_usuarios():
-    """Devuelve la lista completa de usuarios registrados y su total de partidos cargados."""
+    """Devuelve la lista completa de usuarios."""
     conn = get_db_connection()
     if not conn:
         return pd.DataFrame()
@@ -380,7 +386,7 @@ def obtener_todos_los_usuarios():
 # 8. OPERACIONES DE CRUD DE PARTIDOS
 # =========================================================
 def cargar_partidos(usuario_id):
-    """Carga los partidos de un usuario desde la base de datos."""
+    """Carga los partidos del usuario de forma segura."""
     conn = get_db_connection()
     if not conn:
         return pd.DataFrame()
@@ -404,7 +410,7 @@ def cargar_partidos(usuario_id):
 
 
 def guardar_partido(usuario_id, codigo, fecha_val, tiempo_val, tarifa_val, tipo_partido):
-    """Guarda un nuevo partido en la base de datos."""
+    """Inserta un nuevo partido."""
     conn = get_db_connection()
     if conn:
         try:
@@ -423,7 +429,7 @@ def guardar_partido(usuario_id, codigo, fecha_val, tiempo_val, tarifa_val, tipo_
 
 
 def actualizar_partido(id_partido, usuario_id, codigo, fecha_val, tiempo_val, tarifa_val, tipo_partido):
-    """Actualiza la información de un partido existente."""
+    """Actualiza un partido existente."""
     conn = get_db_connection()
     if conn:
         try:
@@ -443,7 +449,7 @@ def actualizar_partido(id_partido, usuario_id, codigo, fecha_val, tiempo_val, ta
 
 
 def eliminar_partido(id_partido, usuario_id):
-    """Elimina un partido de la base de datos."""
+    """Elimina un partido."""
     conn = get_db_connection()
     if conn:
         try:
@@ -471,7 +477,7 @@ if "user_info" not in st.session_state:
 
 # VISTA 1: LOGIN / REGISTRO
 if not st.session_state.authenticated:
-    st.title("🏀 BasketTracker Cloud v2.9.3")
+    st.title("🏀 BasketTracker Cloud v2.9.4")
     st.caption("Sistema de Control Financiero y Registro de Partidos de Baloncesto")
 
     tab_login, tab_registro = st.tabs(["🔑 Iniciar Sesión", "📝 Registrar Usuario"])
@@ -556,7 +562,7 @@ else:
     # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (EXCLUSIVO geremo01)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
-        st.title("👑 Panel de Administración Global (v2.9.3)")
+        st.title("👑 Panel de Administración Global (v2.9.4)")
         st.caption("Control centralizado de tarifas, usuarios y seguridad del sistema")
 
         tab_admin_tasas, tab_admin_usuarios, tab_admin_pass = st.tabs(
@@ -565,8 +571,6 @@ else:
 
         with tab_admin_tasas:
             st.subheader("⚙️ Modificar Tabla de Precios por Partidos")
-            st.caption("Ajusta los montos por tramos acumulativos quincenales y las tarifas fijas para juegos en vivo.")
-            
             tasas_actuales = obtener_tasas_globales()
 
             with st.form("form_tasas_globales"):
@@ -693,7 +697,14 @@ else:
 
         if not df_todos.empty:
             today = date.today()
-            fecha_ref_historica = df_todos["fecha"].max()
+            try:
+                fecha_ref_historica = pd.to_datetime(df_todos["fecha"]).max()
+                if pd.isna(fecha_ref_historica):
+                    fecha_ref_historica = today
+                else:
+                    fecha_ref_historica = fecha_ref_historica.date()
+            except Exception:
+                fecha_ref_historica = today
 
             if periodo == "Hoy":
                 df_filtrado = df_todos[df_todos["fecha"] == today]
@@ -714,10 +725,9 @@ else:
             df_filtrado = pd.DataFrame()
             fecha_ref_historica = date.today()
 
-        st.title("🏀 BasketTracker Cloud v2.9.3")
+        st.title("🏀 BasketTracker Cloud v2.9.4")
         st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
-        # Pestañas principales de trabajo
         tab_registro_partido, tab_gestion_edicion = st.tabs(["➕ Registrar Nuevo Partido", "✏️ Gestionar / Editar Partidos"])
 
         with tab_registro_partido:
@@ -739,7 +749,6 @@ else:
             with col_f_tiempo:
                 tiempo_input = st.text_input("Tiempo de Ejecución", placeholder="HH:MM:SS (Ej: 02:20:00)")
 
-            # Lógica de asignación de tarifas
             tasas_v = obtener_tasas_globales()
             if "En Vivo NBA" in modalidad_sel:
                 tipo_guardar = "en_vivo_nba"
@@ -785,7 +794,6 @@ else:
                 partido_sel_str = st.selectbox("Selecciona el partido a modificar:", options=list(dict_partidos.keys()))
                 id_partido_sel = dict_partidos[partido_sel_str]
                 
-                # Datos actuales del partido
                 partido_actual = df_todos[df_todos["id"] == id_partido_sel].iloc[0]
                 
                 col_e1, col_e2, col_e3 = st.columns(3)
@@ -804,7 +812,7 @@ else:
                         index=["quincenal", "en_vivo_normal", "en_vivo_nba"].index(partido_actual["tipo_partido"])
                     )
                 with col_e5:
-                    edit_tarifa = st.number_input("Tarifa ($)", value=float(parted_actual["tarifa"]) if 'parted_actual' in locals() else float(partido_actual["tarifa"]), step=0.25, format="%.2f")
+                    edit_tarifa = st.number_input("Tarifa ($)", value=float(partido_actual["tarifa"]), step=0.25, format="%.2f")
 
                 col_btn_act, col_btn_eli = st.columns([1, 1])
                 with col_btn_act:
@@ -823,7 +831,7 @@ else:
         st.markdown("---")
 
         # ---------------------------------------------------------
-        # MÉTRICAS Y TOTALES (CÁLCULO EXACTO POR REGISTROS / PAGOS)
+        # MÉTRICAS Y TOTALES
         # ---------------------------------------------------------
         cant_partidos = len(df_filtrado)
 
@@ -886,7 +894,7 @@ else:
 
             st.dataframe(df_tabla, use_container_width=True, hide_index=True)
 
-            col_exp1, col_exp2 = st.columns([1, 1])
+            col_exp1, _ = st.columns([1, 1])
 
             with col_exp1:
                 df_export = df_display[[
