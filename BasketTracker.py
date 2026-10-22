@@ -491,16 +491,18 @@ else:
     user_name = st.session_state.user_info["nombre"]
     username_actual = st.session_state.user_info["username"].lower().strip()
 
-    es_admin_base = (username_actual == "admin") or (user_id == 1)
+    # 🔒 BLINDAJE DE SEGURIDAD EXCLUSIVO:
+    # Solo tu nombre de usuario exacto tendrá privilegios de Administrador Global.
+    # Reemplaza 'tu_usuario_real' por el username con el que inicias sesión (ej. 'eduardo' o 'rene').
+    USUARIO_ADMIN_PRINCIPAL = "eduardo"  # <-- Cambia esto si tu usuario es diferente
+
+    es_admin = (username_actual == USUARIO_ADMIN_PRINCIPAL)
 
     st.sidebar.write(f"👤 **Analista:** {user_name}")
     st.sidebar.caption(f"ID de Usuario: {user_id} | Username: {username_actual}")
 
-    modo_super_admin = st.sidebar.checkbox("👑 Activar Modo Administrador Global", value=es_admin_base)
-    es_admin = es_admin_base or modo_super_admin
-
     if es_admin:
-        st.sidebar.markdown("👑 **Rol:** Administrador Global Activado")
+        st.sidebar.markdown("👑 **Rol:** Administrador Global (Exclusivo)")
     else:
         st.sidebar.markdown("🟢 **Rol:** Operador Estándar")
 
@@ -520,7 +522,7 @@ else:
         modo_vista = "📊 Mi Panel de Partidos"
 
     # =========================================================
-    # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO ADMIN)
+    # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO ADMIN EXCLUSIVO)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
         st.title("👑 Panel de Administración Global (v2.9.1)")
