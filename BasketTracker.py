@@ -200,18 +200,43 @@ def obtener_tarifa_unitaria(tipo_partido, cant_partidos=0):
 
 
 # =========================================================
-# 6. FUNCIONES AUXILIARES Y GESTIÓN DE USUARIOS (BLINDADAS)
+# 6. FUNCIONES AUXILIARES Y MANEJO INTELIGENTE DE TIEMPOS
 # =========================================================
+def normalizar_formato_tiempo(tiempo_str):
+    """
+    Convierte cadenas como '020225' o '20225' automáticamente a '02:02:25'
+    """
+    if not tiempo_str or not isinstance(tiempo_str, str):
+        return "00:00:00"
+    
+    t = tiempo_str.strip()
+    if ":" in t:
+        return t
+    
+    # Si ingresaron solo dígitos (ej. 020225)
+    if t.isdigit():
+        t = t.zfill(6) # Asegura 6 dígitos (020225)
+        if len(t) == 6:
+            hh, mm, ss = t[:2], t[2:4], t[4:6]
+            return f"{hh}:{mm}:{ss}"
+            
+    return t
+
+
 def sumar_tiempos(lista_tiempos):
+    """
+    Suma tiempos en segundos tolerando formatos con o sin dos puntos (HH:MM:SS)
+    """
     total_segundos = 0
     for t in lista_tiempos:
         if not t or not isinstance(t, str):
             continue
-        t_limpio = t.strip()
-        if not t_limpio or t_limpio.lower() in ["nan", "nat", "none", "--"]:
+        
+        t_norm = normalizar_formato_tiempo(t)
+        if not t_norm or t_norm.lower() in ["nan", "nat", "none", "--"]:
             continue
             
-        partes = t_limpio.split(":")
+        partes = t_norm.split(":")
         try:
             if len(partes) == 3:
                 h, m, s = map(int, partes)
@@ -387,12 +412,13 @@ def guardar_partido(usuario_id, codigo, fecha_val, tiempo_val, tarifa_val, tipo_
     if conn:
         try:
             cur = conn.cursor()
+            tiempo_formateado = normalizar_formato_tiempo(tiempo_val)
             cur.execute(
                 """
                 INSERT INTO partidos (usuario_id, codigo_partido, fecha, tiempo_ejecucion, tarifa, tipo_partido)
                 VALUES (%s, %s, %s, %s, %s, %s);
             """,
-                (usuario_id, codigo, fecha_val, tiempo_val, tarifa_val, tipo_partido),
+                (usuario_id, codigo, fecha_val, tiempo_formateado, tarifa_val, tipo_partido),
             )
             conn.commit()
             cur.close()
@@ -523,7 +549,7 @@ else:
     # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO geremo01)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
-        st.title("👑 Panel de Administración Global (v2.9.2)")
+        st.title("👑 Panel de Administración Global (v2.9.5)")
         st.caption("Gestión general de usuarios, contraseñas y tabla de precios por partidos")
 
         tab_admin_tasas, tab_admin_usuarios, tab_admin_pass = st.tabs(
@@ -709,7 +735,7 @@ else:
         else:
             df_filtrado = pd.DataFrame()
 
-        st.title("🏀 BasketTracker Cloud v2.9.2")
+        st.title("🏀 BasketTracker Cloud v2.9.5")
         st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
         # Formulario de registro de partidos con selección directa de Modalidad
@@ -811,6 +837,9 @@ else:
                     return "🏀 Quincenal Estándar"
 
             df_display["Modalidad"] = df_display["tipo_partido"].apply(formato_tipo)
+            
+            # Normalizar la visualización de la columna de tiempos en la tabla
+            df_display["tiempo_ejecucion"] = df_display["tiempo_ejecucion"].apply(normalizar_formato_tiempo)
             df_display["tarifa_fmt"] = df_display["tarifa"].apply(lambda x: f"${float(x):.2f}")
 
             df_tabla = df_display[[
