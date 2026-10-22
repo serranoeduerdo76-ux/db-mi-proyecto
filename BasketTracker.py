@@ -200,7 +200,7 @@ def obtener_tarifa_unitaria(tipo_partido, cant_partidos=0):
 
 
 # =========================================================
-# 6. FUNCIONES AUXILIARES Y GESTIÓN DE USUARIOS (AUDITADAS Y BLINDADAS)
+# 6. FUNCIONES AUXILIARES Y GESTIÓN DE USUARIOS
 # =========================================================
 def sumar_tiempos(lista_tiempos):
     total_segundos = 0
@@ -492,9 +492,8 @@ else:
     username_actual = st.session_state.user_info["username"].lower().strip()
 
     # 🔒 BLINDAJE DE SEGURIDAD EXCLUSIVO:
-    # Solo tu nombre de usuario exacto tendrá privilegios de Administrador Global.
-    # Reemplaza 'tu_usuario_real' por el username con el que inicias sesión (ej. 'eduardo' o 'rene').
-    USUARIO_ADMIN_PRINCIPAL = "eduardo"  # <-- Cambia esto si tu usuario es diferente
+    # Vinculado estrictamente a tu usuario personal 'geremo01'
+    USUARIO_ADMIN_PRINCIPAL = "geremo01"
 
     es_admin = (username_actual == USUARIO_ADMIN_PRINCIPAL)
 
@@ -522,7 +521,7 @@ else:
         modo_vista = "📊 Mi Panel de Partidos"
 
     # =========================================================
-    # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO ADMIN EXCLUSIVO)
+    # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO ADMIN EXCLUSIVO: geremo01)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
         st.title("👑 Panel de Administración Global (v2.9.1)")
