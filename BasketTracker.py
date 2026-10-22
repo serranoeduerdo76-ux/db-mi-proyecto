@@ -522,7 +522,7 @@ else:
     # =========================================================
     # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO geremo01)
     # =========================================================
-    if es_admin andmodo_vista == "👑 Panel de Administración Global":
+    if es_admin and modo_vista == "👑 Panel de Administración Global":
         st.title("👑 Panel de Administración Global (v2.9.2)")
         st.caption("Gestión general de usuarios, contraseñas y tabla de precios por partidos")
 
@@ -665,7 +665,7 @@ else:
             ],
         )
 
-        # Si el usuario selecciona alguna de las quincenas, permitimos elegir el mes y año de consulta de forma limpia
+        # Selector de mes y año para las quincenas
         mes_filtro = datetime.now().month
         ano_filtro = datetime.now().year
         if "Quincena" in periodo:
@@ -678,7 +678,6 @@ else:
                 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
             }
             mes_seleccionado_str = st.sidebar.selectbox("Mes", options=list(mes_nombres.values()), index=datetime.now().month - 1)
-            # Mapear nombre a número
             mes_filtro = [k for k, v in mes_nombres.items() if v == mes_seleccionado_str][0]
 
         df_todos = cargar_partidos(user_id)
