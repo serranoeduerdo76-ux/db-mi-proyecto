@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+afrom datetime import date, datetime, timedelta
 import hashlib
 import pandas as pd
 import psycopg2
@@ -200,14 +200,18 @@ def obtener_tarifa_unitaria(tipo_partido, cant_partidos=0):
 
 
 # =========================================================
-# 6. FUNCIONES AUXILIARES Y GESTIÓN DE USUARIOS
+# 6. FUNCIONES AUXILIARES Y GESTIÓN DE USUARIOS (AUDITADAS Y BLINDADAS)
 # =========================================================
 def sumar_tiempos(lista_tiempos):
     total_segundos = 0
     for t in lista_tiempos:
         if not t or not isinstance(t, str):
             continue
-        partes = t.strip().split(":")
+        t_limpio = t.strip()
+        if not t_limpio or t_limpio.lower() in ["nan", "nat", "none", "--"]:
+            continue
+            
+        partes = t_limpio.split(":")
         try:
             if len(partes) == 3:
                 h, m, s = map(int, partes)
@@ -223,6 +227,8 @@ def sumar_tiempos(lista_tiempos):
 
 
 def formatear_segundos(total_segundos):
+    if total_segundos < 0:
+        total_segundos = 0
     horas = total_segundos // 3600
     minutos = (total_segundos % 3600) // 60
     segundos = total_segundos % 60
@@ -739,7 +745,6 @@ else:
         # ---------------------------------------------------------
         cant_partidos = len(df_filtrado)
 
-        # Recalcular ganancia total de forma exacta según los partidos guardados
         total_cobrar = 0.0
         if not df_filtrado.empty:
             total_cobrar = float(df_filtrado["tarifa"].sum())
@@ -817,33 +822,10 @@ else:
                     "Tarifa ($)",
                 ]
                 csv_data = df_export.to_csv(index=False).encode("utf-8")
-                filename_periodo = periodo.lower().replace(" ", "_")
-
                 st.download_button(
-                    label="📥 Exportar Reporte (CSV / Excel)",
+                    label="📥 Descargar Reporte en CSV",
                     data=csv_data,
-                    file_name=f"reporte_partidos_{filename_periodo}_{date.today()}.csv",
+                    file_name="reporte_partidos_basket.csv",
                     mime="text/csv",
-                    use_container_width=True,
+                    use_container_width=True
                 )
-
-            with col_exp2:
-                with st.expander("🗑️ Gestionar / Eliminar Registros"):
-                    opciones_eliminar = {
-                        f"ID DB: {row['id']} | Partido: {row['codigo_partido']} ({row['fecha']})": row[
-                            "id"
-                        ]
-                        for _, row in df_filtrado.iterrows()
-                    }
-                    partido_sel = st.selectbox(
-                        "Seleccione el registro a eliminar:",
-                        options=list(opciones_eliminar.keys()),
-                    )
-
-                    if st.button("🔴 Eliminar Registro Seleccionado"):
-                        id_a_borrar = opciones_eliminar[partido_sel]
-                        if eliminar_partido(id_a_borrar, user_id):
-                            st.success("Registro eliminado correctamente.")
-                            st.rerun()
-        else:
-            st.info(f"ℹ️ No hay partidos registrados en el período: {periodo}")
