@@ -522,8 +522,8 @@ else:
     # =========================================================
     # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO geremo01)
     # =========================================================
-    if es_admin and modo_vista == "👑 Panel de Administración Global":
-        st.title("👑 Panel de Administración Global (v2.9.1)")
+    if es_admin andmodo_vista == "👑 Panel de Administración Global":
+        st.title("👑 Panel de Administración Global (v2.9.2)")
         st.caption("Gestión general de usuarios, contraseñas y tabla de precios por partidos")
 
         tab_admin_tasas, tab_admin_usuarios, tab_admin_pass = st.tabs(
@@ -651,37 +651,66 @@ else:
     else:
         st.sidebar.markdown("---")
         st.sidebar.title("🔍 Filtros de Búsqueda")
+        
+        # Opciones de filtro ampliadas para separar las dos quincenas claramente
         periodo = st.sidebar.radio(
             "Seleccionar Período:",
-            ["Esta Quincena", "Hoy", "Esta Semana", "Este Mes", "Mostrar Todos"],
+            [
+                "Hoy", 
+                "Esta Semana", 
+                "1ª Quincena (1 al 15)", 
+                "2ª Quincena (16 al Fin de Mes)", 
+                "Este Mes", 
+                "Mostrar Todos"
+            ],
         )
+
+        # Si el usuario selecciona alguna de las quincenas, permitimos elegir el mes y año de consulta de forma limpia
+        mes_filtro = datetime.now().month
+        ano_filtro = datetime.now().year
+        if "Quincena" in periodo:
+            st.sidebar.markdown("---")
+            st.sidebar.subheader("📅 Selector de Mes para Quincena")
+            ano_filtro = st.sidebar.selectbox("Año", [2025, 2026, 2027], index=1)
+            mes_nombres = {
+                1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 
+                5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto", 
+                9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+            }
+            mes_seleccionado_str = st.sidebar.selectbox("Mes", options=list(mes_nombres.values()), index=datetime.now().month - 1)
+            # Mapear nombre a número
+            mes_filtro = [k for k, v in mes_nombres.items() if v == mes_seleccionado_str][0]
 
         df_todos = cargar_partidos(user_id)
 
         if not df_todos.empty:
             today = date.today()
-            fecha_ref_historica = df_todos["fecha"].max()
-
+            
             if periodo == "Hoy":
                 df_filtrado = df_todos[df_todos["fecha"] == today]
             elif periodo == "Esta Semana":
                 inicio_semana = today - timedelta(days=today.weekday())
                 df_filtrado = df_todos[df_todos["fecha"] >= inicio_semana]
-            elif periodo == "Esta Quincena":
-                inicio_q, fin_q = obtener_rango_quincena(fecha_ref_historica)
-                df_filtrado = df_todos[
-                    (df_todos["fecha"] >= inicio_q) & (df_todos["fecha"] <= fin_q)
-                ]
+            elif periodo == "1ª Quincena (1 al 15)":
+                inicio_q = date(ano_filtro, mes_filtro, 1)
+                fin_q = date(ano_filtro, mes_filtro, 15)
+                df_filtrado = df_todos[(df_todos["fecha"] >= inicio_q) & (df_todos["fecha"] <= fin_q)]
+            elif periodo == "2ª Quincena (16 al Fin de Mes)":
+                inicio_q = date(ano_filtro, mes_filtro, 16)
+                if mes_filtro == 12:
+                    fin_q = date(ano_filtro, 12, 31)
+                else:
+                    fin_q = date(ano_filtro, mes_filtro + 1, 1) - timedelta(days=1)
+                df_filtrado = df_todos[(df_todos["fecha"] >= inicio_q) & (df_todos["fecha"] <= fin_q)]
             elif periodo == "Este Mes":
-                inicio_mes = date(fecha_ref_historica.year, fecha_ref_historica.month, 1)
+                inicio_mes = date(today.year, today.month, 1)
                 df_filtrado = df_todos[df_todos["fecha"] >= inicio_mes]
             else:
                 df_filtrado = df_todos.copy()
         else:
             df_filtrado = pd.DataFrame()
-            fecha_ref_historica = date.today()
 
-        st.title("🏀 BasketTracker Cloud v2.9.1")
+        st.title("🏀 BasketTracker Cloud v2.9.2")
         st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
         # Formulario de registro de partidos con selección directa de Modalidad
