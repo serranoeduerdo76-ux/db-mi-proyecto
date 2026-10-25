@@ -421,14 +421,13 @@ def cargar_partidos(usuario_id):
 def recalcular_tarifas_usuario(usuario_id):
     """
     Recorre cronológicamente todos los partidos del usuario y recalcula 
-    la tarifa exacta según los 5 tramos para los estandar, manteniendo los en vivo fijos.
+    la tarifa exacta según los 5 tramos para los estándar, manteniendo los en vivo fijos.
     """
     conn = get_db_connection()
     if not conn:
         return False
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        # Traer todos los partidos ordenados por fecha y hora de creación
         cur.execute("""
             SELECT id, fecha, tipo_partido FROM partidos 
             WHERE usuario_id = %s 
@@ -436,12 +435,10 @@ def recalcular_tarifas_usuario(usuario_id):
         """, (usuario_id,))
         partidos = cur.fetchall()
         
-        # Agrupar y contar por quincena para asignar el número de partido estándar correcto
         conteo_quincenas = {}
         
         for p in partidos:
             f = p["fecha"]
-            # Determinar quincena clave
             if f.day <= 15:
                 q_key = (f.year, f.month, 1)
             else:
@@ -458,7 +455,6 @@ def recalcular_tarifas_usuario(usuario_id):
             else:
                 nueva_tarifa = obtener_tarifa_unitaria(tipo, 0)
                 
-            # Actualizar en base de datos
             cur_upd = conn.cursor()
             cur_upd.execute("""
                 UPDATE partidos SET tarifa = %s WHERE id = %s;
@@ -616,7 +612,7 @@ else:
     # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO geremo01)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
-        st.title("👑 Panel de Administración Global (v2.9.9)")
+        st.title("👑 Panel de Administración Global (v2.10.0)")
         st.caption("Gestión general de usuarios, contraseñas y tabla de precios por partidos")
 
         tab_admin_tasas, tab_admin_usuarios, tab_admin_pass = st.tabs(
@@ -805,7 +801,7 @@ else:
         else:
             df_filtrado = pd.DataFrame()
 
-        st.title("🏀 BasketTracker Cloud v2.9.9")
+        st.title("🏀 BasketTracker Cloud v2.10.0")
         st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
         # Botón de mantenimiento rápido para recalcular precios de partidos viejos
