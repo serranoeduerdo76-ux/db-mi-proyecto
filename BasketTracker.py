@@ -420,14 +420,15 @@ def cargar_partidos(usuario_id):
 
 def recalcular_tarifas_usuario(usuario_id):
     """
-    Recorre cronológicamente todos los partidos del usuario y recalcula 
-    la tarifa exacta según los 5 tramos para los estándar, manteniendo los en vivo fijos.
+    Recorre estrictamente en orden cronológico e ID todos los partidos del usuario 
+    y recalcula la tarifa exacta según los 5 tramos para los estándar, manteniendo los en vivo fijos.
     """
     conn = get_db_connection()
     if not conn:
         return False
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
+        # Orden estricto por fecha y luego ID para respetar el orden real de registro
         cur.execute("""
             SELECT id, fecha, tipo_partido FROM partidos 
             WHERE usuario_id = %s 
@@ -612,7 +613,7 @@ else:
     # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO geremo01)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
-        st.title("👑 Panel de Administración Global (v2.10.0)")
+        st.title("👑 Panel de Administración Global (v2.10.1)")
         st.caption("Gestión general de usuarios, contraseñas y tabla de precios por partidos")
 
         tab_admin_tasas, tab_admin_usuarios, tab_admin_pass = st.tabs(
@@ -801,7 +802,7 @@ else:
         else:
             df_filtrado = pd.DataFrame()
 
-        st.title("🏀 BasketTracker Cloud v2.10.0")
+        st.title("🏀 BasketTracker Cloud v2.10.1")
         st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
         # Botón de mantenimiento rápido para recalcular precios de partidos viejos
