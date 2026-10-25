@@ -48,7 +48,6 @@ def init_db():
     if conn:
         try:
             cur = conn.cursor()
-            # Tabla de Usuarios
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS usuarios (
                     id SERIAL PRIMARY KEY,
@@ -59,7 +58,6 @@ def init_db():
                 );
             """)
             
-            # Tabla de Partidos con soporte de tipo_partido
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS partidos (
                     id SERIAL PRIMARY KEY,
@@ -73,7 +71,6 @@ def init_db():
                 );
             """)
 
-            # Migración automática si la columna tipo_partido no existe aún
             cur.execute("""
                 DO $$ 
                 BEGIN 
@@ -83,7 +80,6 @@ def init_db():
                 END $$;
             """)
 
-            # Tabla de Configuración Global
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS configuracion_global (
                     clave VARCHAR(50) PRIMARY KEY,
@@ -91,7 +87,6 @@ def init_db():
                 );
             """)
 
-            # Valores por defecto de tasas de pago (5 Tramos Estándar actualizados)
             default_tasa = [
                 ("tasa_tramo_1", 6.00),
                 ("tasa_tramo_2", 6.50),
@@ -395,17 +390,14 @@ def obtener_conteo_quincena_por_fecha(usuario_id, fecha_ref):
 def recalcular_tarifas_usuario(usuario_id):
     """
     Recálculo RETROACTIVO por quincena:
-    - Se cuenta el TOTAL de partidos estándar ('quincenal') de cada quincena.
-    - TODOS los partidos estándar de esa quincena toman la tarifa del tramo
-      correspondiente a ese total:
+    - Cuenta el TOTAL de partidos estándar ('quincenal') de cada quincena.
+    - TODOS los estándar de esa quincena toman la tarifa del tramo:
         1-11  -> tramo_1 ($6.00)
         12-14 -> tramo_2 ($6.50)
         15-26 -> tramo_3 ($7.00)
         27-29 -> tramo_4 ($7.50)
         30+   -> tramo_5 ($8.00)
-    - Los partidos en vivo ('en_vivo_normal' = $12.00, 'en_vivo_nba' = $18.50)
-      NO cuentan para el tramo y conservan su tarifa fija; solo suman al total
-      de ganancias.
+    - Los partidos en vivo NO cuentan para el tramo y conservan su tarifa fija.
     """
     conn = get_db_connection()
     if not conn:
@@ -419,7 +411,7 @@ def recalcular_tarifas_usuario(usuario_id):
         """, (usuario_id,))
         partidos = cur.fetchall()
 
-        # 1) Contar cuántos partidos estándar hay por quincena
+        # 1) Contar estándar por quincena
         conteo_quincenas = {}
         for p in partidos:
             tipo = p["tipo_partido"] if p["tipo_partido"] else "quincenal"
@@ -432,7 +424,7 @@ def recalcular_tarifas_usuario(usuario_id):
                 q_key = (f.year, f.month, 2)
             conteo_quincenas[q_key] = conteo_quincenas.get(q_key, 0) + 1
 
-        # 2) Asignar tarifa: retroactiva para estándar, fija para en vivo
+        # 2) Asignar tarifa
         actualizaciones = []
         for p in partidos:
             tipo = p["tipo_partido"] if p["tipo_partido"] else "quincenal"
@@ -445,7 +437,6 @@ def recalcular_tarifas_usuario(usuario_id):
                 total_q = conteo_quincenas.get(q_key, 0)
                 nueva_tarifa = obtener_tarifa_unitaria("quincenal", total_q)
             else:
-                # En vivo: tarifa fija, no afecta el conteo estándar
                 nueva_tarifa = obtener_tarifa_unitaria(tipo, 0)
             actualizaciones.append((nueva_tarifa, p["id"]))
 
@@ -598,9 +589,7 @@ else:
     user_name = st.session_state.user_info["nombre"]
     username_actual = st.session_state.user_info["username"].lower().strip()
 
-    # 🔒 BLINDAJE DE SEGURIDAD EXCLUSIVO PARA geremo01
     USUARIO_ADMIN_PRINCIPAL = "geremo01"
-
     es_admin = (username_actual == USUARIO_ADMIN_PRINCIPAL)
 
     st.sidebar.write(f"👤 **Analista:** {user_name}")
@@ -820,7 +809,7 @@ else:
         st.title("🏀 BasketTracker Cloud v2.10.6")
         st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
-        # Botón de recálculo manual rápido y optimizado
+        # Botón de recálculo manual
         if st.button("🔄 Forzar Recálculo de Tarifas en Base de Datos"):
             if recalcular_tarifas_usuario(user_id):
                 st.success("¡Tarifas recalculadas con éxito en la base de datos!")
@@ -828,7 +817,57 @@ else:
             else:
                 st.error("Error al recalcular las tarifas.")
 
-        # Formulario de registro de partidos con selección directa de Modalidad
+        # 🔍 PANEL DE DIAGNÓSTICO TEMPORAL (quítalo cuando todo funcione)
+        with st.expander("🔍 Diagnóstico temporal (para verificar el recálculo)"):
+            conn_dbg = get_db_connection()
+            if conn_dbg:
+                cur_dbg = conn_dbg.cursor(cursor_factory=RealDictCursor)
+                cur_dbg.execute("""
+                    SELECT id, fecha, tipo_partido, tarifa FROM partidos
+                    WHERE usuario_id = %s ORDER BY fecha ASC, id ASC;
+                """, (user_id,))
+                rows_dbg = cur_dbg.fetchall()
+                cur_dbg.close()
+                conn_dbg.close()
+
+                total_dbg = len(rows_dbg)
+                std_dbg = sum(1 for r in rows_dbg if (r["tipo_partido"] or "quincenal") == "quincenal")
+                vivo_dbg = total_dbg - std_dbg
+
+                # Conteo por quincena
+                q_count_dbg = {}
+                for r in rows_dbg:
+                    if (r["tipo_partido"] or "quincenal") != "quincenal":
+                        continue
+                    f = r["fecha"]
+                    qk = (f.year, f.month, 1) if f.day <= 15 else (f.year, f.month, 2)
+                    q_count_dbg[qk] = q_count_dbg.get(qk, 0) + 1
+
+                col_d1, col_d2, col_d3 = st.columns(3)
+                col_d1.metric("Total partidos", total_dbg)
+                col_d2.metric("Estándar", std_dbg)
+                col_d3.metric("En vivo", vivo_dbg)
+
+                st.write("**Conteo de estándar por quincena:**")
+                if q_count_dbg:
+                    for qk, cnt in sorted(q_count_dbg.items()):
+                        tramo_txt = "tramo_1" if cnt <= 11 else "tramo_2" if cnt <= 14 else "tramo_3" if cnt <= 26 else "tramo_4" if cnt <= 29 else "tramo_5"
+                        st.write(f"- {qk[0]}-{qk[1]:02d} (quincena {qk[2]}): **{cnt} partidos** → {tramo_txt}")
+                else:
+                    st.write("(sin partidos estándar)")
+
+                st.write("**Detalle de partidos:**")
+                st.dataframe(pd.DataFrame(rows_dbg), use_container_width=True)
+
+                # Verificación de la suma
+                suma_dbg = sum(float(r["tarifa"] or 0) for r in rows_dbg)
+                st.write(f"**Suma de tarifas en BD:** ${suma_dbg:.2f}")
+                std_sum = sum(float(r["tarifa"] or 0) for r in rows_dbg if (r["tipo_partido"] or "quincenal") == "quincenal")
+                vivo_sum = suma_dbg - std_sum
+                st.write(f"- Estándar: ${std_sum:.2f}")
+                st.write(f"- En vivo: ${vivo_sum:.2f}")
+
+        # Formulario de registro
         st.subheader("➕ Registrar Nuevo Partido")
         
         col_m1, col_m2 = st.columns([2, 2])
@@ -860,7 +899,6 @@ else:
             tipo_guardar = "quincenal"
             conteo_quincena_form = obtener_conteo_quincena_por_fecha(user_id, fecha_input)
             siguiente_numero = conteo_quincena_form + 1
-            # Vista previa RETROACTIVA: si este partido entra, ¿a qué tramo pasa la quincena?
             tarifa_sugerida = obtener_tarifa_unitaria("quincenal", siguiente_numero)
             st.info(
                 f"💡 **Tabulador Quincenal Estándar (retroactivo):** Con este partido la quincena "
@@ -880,9 +918,6 @@ else:
                     tarifa_sugerida,
                     tipo_guardar,
                 ):
-                    # 🔧 Recálculo RETROACTIVO automático al guardar:
-                    # actualiza TODOS los partidos estándar de la quincena al tramo
-                    # correspondiente al nuevo total. Los en vivo conservan su tarifa fija.
                     recalcular_tarifas_usuario(user_id)
                     st.success(f"✅ Partido '{codigo_input}' guardado exitosamente como {tipo_guardar.upper()}.")
                     st.rerun()
