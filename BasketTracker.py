@@ -188,7 +188,7 @@ def actualizar_tasa_global(clave, nuevo_valor):
 
 def obtener_tarifa_unitaria(tipo_partido, cant_partidos=0):
     """
-    Regla estricta de 5 tramos para partidos estándar:
+    Regla de 5 tramos para partidos estándar (retroactiva por quincena):
     - 1 al 11: $6.00
     - 12 al 14: $6.50
     - 15 al 26: $7.00
@@ -394,11 +394,18 @@ def obtener_conteo_quincena_por_fecha(usuario_id, fecha_ref):
 
 def recalcular_tarifas_usuario(usuario_id):
     """
-    Recorre estrictamente en orden cronológico por quincena todos los partidos del usuario 
-    y actualiza de forma forzosa la tarifa exacta según los tramos.
-    - Los partidos 'quincenal' se cuentan y se tarifican por tramo.
-    - Los partidos en vivo ('en_vivo_normal', 'en_vivo_nba') NO cuentan para los tramos
-      y conservan su tarifa fija (solo suman al total de ganancias).
+    Recálculo RETROACTIVO por quincena:
+    - Se cuenta el TOTAL de partidos estándar ('quincenal') de cada quincena.
+    - TODOS los partidos estándar de esa quincena toman la tarifa del tramo
+      correspondiente a ese total:
+        1-11  -> tramo_1 ($6.00)
+        12-14 -> tramo_2 ($6.50)
+        15-26 -> tramo_3 ($7.00)
+        27-29 -> tramo_4 ($7.50)
+        30+   -> tramo_5 ($8.00)
+    - Los partidos en vivo ('en_vivo_normal' = $12.00, 'en_vivo_nba' = $18.50)
+      NO cuentan para el tramo y conservan su tarifa fija; solo suman al total
+      de ganancias.
     """
     conn = get_db_connection()
     if not conn:
@@ -411,38 +418,44 @@ def recalcular_tarifas_usuario(usuario_id):
             ORDER BY fecha ASC, id ASC;
         """, (usuario_id,))
         partidos = cur.fetchall()
-        
+
+        # 1) Contar cuántos partidos estándar hay por quincena
         conteo_quincenas = {}
-        actualizaciones = []
-        
         for p in partidos:
+            tipo = p["tipo_partido"] if p["tipo_partido"] else "quincenal"
+            if tipo != "quincenal":
+                continue
             f = p["fecha"]
             if f.day <= 15:
                 q_key = (f.year, f.month, 1)
             else:
                 q_key = (f.year, f.month, 2)
-                
+            conteo_quincenas[q_key] = conteo_quincenas.get(q_key, 0) + 1
+
+        # 2) Asignar tarifa: retroactiva para estándar, fija para en vivo
+        actualizaciones = []
+        for p in partidos:
             tipo = p["tipo_partido"] if p["tipo_partido"] else "quincenal"
-            
             if tipo == "quincenal":
-                if q_key not in conteo_quincenas:
-                    conteo_quincenas[q_key] = 0
-                conteo_quincenas[q_key] += 1
-                num_actual = conteo_quincenas[q_key]
-                nueva_tarifa = obtener_tarifa_unitaria("quincenal", num_actual)
+                f = p["fecha"]
+                if f.day <= 15:
+                    q_key = (f.year, f.month, 1)
+                else:
+                    q_key = (f.year, f.month, 2)
+                total_q = conteo_quincenas.get(q_key, 0)
+                nueva_tarifa = obtener_tarifa_unitaria("quincenal", total_q)
             else:
                 # En vivo: tarifa fija, no afecta el conteo estándar
                 nueva_tarifa = obtener_tarifa_unitaria(tipo, 0)
-                
             actualizaciones.append((nueva_tarifa, p["id"]))
-        
+
         cur_upd = conn.cursor()
         for tarifa, pid in actualizaciones:
             cur_upd.execute("""
                 UPDATE partidos SET tarifa = %s WHERE id = %s;
             """, (tarifa, pid))
         cur_upd.close()
-        
+
         conn.commit()
         cur.close()
         conn.close()
@@ -847,10 +860,12 @@ else:
             tipo_guardar = "quincenal"
             conteo_quincena_form = obtener_conteo_quincena_por_fecha(user_id, fecha_input)
             siguiente_numero = conteo_quincena_form + 1
+            # Vista previa RETROACTIVA: si este partido entra, ¿a qué tramo pasa la quincena?
             tarifa_sugerida = obtener_tarifa_unitaria("quincenal", siguiente_numero)
             st.info(
-                f"💡 **Tabulador Quincenal Estándar:** Es el **Partido estándar #{siguiente_numero}** de esta quincena. "
-                f"Tarifa unitaria recomendada: **${tarifa_sugerida:.2f}**"
+                f"💡 **Tabulador Quincenal Estándar (retroactivo):** Con este partido la quincena "
+                f"tendría **{siguiente_numero} partidos estándar**, por lo que **todos** los partidos "
+                f"estándar de la quincena quedarían a **${tarifa_sugerida:.2f}** cada uno."
             )
 
         if st.button("💾 Guardar Partido en la Base de Datos", use_container_width=True):
@@ -865,9 +880,9 @@ else:
                     tarifa_sugerida,
                     tipo_guardar,
                 ):
-                    # 🔧 CAMBIO CLAVE: recalcular toda la tabla del usuario
-                    # para que los tramos estándar queden coherentes al instante.
-                    # Los partidos en vivo conservan su tarifa fija y no alteran los tramos.
+                    # 🔧 Recálculo RETROACTIVO automático al guardar:
+                    # actualiza TODOS los partidos estándar de la quincena al tramo
+                    # correspondiente al nuevo total. Los en vivo conservan su tarifa fija.
                     recalcular_tarifas_usuario(user_id)
                     st.success(f"✅ Partido '{codigo_input}' guardado exitosamente como {tipo_guardar.upper()}.")
                     st.rerun()
