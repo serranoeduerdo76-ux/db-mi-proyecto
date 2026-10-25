@@ -404,7 +404,7 @@ def cargar_partidos(usuario_id):
             SELECT id, codigo_partido, fecha, tiempo_ejecucion, tarifa, tipo_partido, creado_en 
             FROM partidos 
             WHERE usuario_id = %s 
-            ORDER BY fecha DESC, id DESC;
+            ORDER BY fecha ASC, id ASC;
         """
         df = pd.read_sql_query(query, conn, params=(usuario_id,))
         conn.close()
@@ -416,6 +416,62 @@ def cargar_partidos(usuario_id):
         return df
     except Exception:
         return pd.DataFrame()
+
+
+def recalcular_tarifas_usuario(usuario_id):
+    """
+    Recorre cronológicamente todos los partidos del usuario y recalcula 
+    la tarifa exacta según los 5 tramos para los estandar, manteniendo los en vivo fijos.
+    """
+    conn = get_db_connection()
+    if not conn:
+        return False
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        # Traer todos los partidos ordenados por fecha y hora de creación
+        cur.execute("""
+            SELECT id, fecha, tipo_partido FROM partidos 
+            WHERE usuario_id = %s 
+            ORDER BY fecha ASC, id ASC;
+        """, (usuario_id,))
+        partidos = cur.fetchall()
+        
+        # Agrupar y contar por quincena para asignar el número de partido estándar correcto
+        conteo_quincenas = {}
+        
+        for p in partidos:
+            f = p["fecha"]
+            # Determinar quincena clave
+            if f.day <= 15:
+                q_key = (f.year, f.month, 1)
+            else:
+                q_key = (f.year, f.month, 2)
+                
+            tipo = p["tipo_partido"] if p["tipo_partido"] else "quincenal"
+            
+            if tipo == "quincenal":
+                if q_key not in conteo_quincenas:
+                    conteo_quincenas[q_key] = 0
+                conteo_quincenas[q_key] += 1
+                num_actual = conteo_quincenas[q_key]
+                nueva_tarifa = obtener_tarifa_unitaria("quincenal", num_actual)
+            else:
+                nueva_tarifa = obtener_tarifa_unitaria(tipo, 0)
+                
+            # Actualizar en base de datos
+            cur_upd = conn.cursor()
+            cur_upd.execute("""
+                UPDATE partidos SET tarifa = %s WHERE id = %s;
+            """, (nueva_tarifa, p["id"]))
+            cur_upd.close()
+            
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        st.error(f"Error al recalcular tarifas: {e}")
+        return False
 
 
 def guardar_partido(usuario_id, codigo, fecha_val, tiempo_val, tarifa_val, tipo_partido):
@@ -560,7 +616,7 @@ else:
     # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO geremo01)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
-        st.title("👑 Panel de Administración Global (v2.9.8)")
+        st.title("👑 Panel de Administración Global (v2.9.9)")
         st.caption("Gestión general de usuarios, contraseñas y tabla de precios por partidos")
 
         tab_admin_tasas, tab_admin_usuarios, tab_admin_pass = st.tabs(
@@ -749,8 +805,16 @@ else:
         else:
             df_filtrado = pd.DataFrame()
 
-        st.title("🏀 BasketTracker Cloud v2.9.8")
+        st.title("🏀 BasketTracker Cloud v2.9.9")
         st.caption(f"Panel de Trabajo | Operador: {user_name}")
+
+        # Botón de mantenimiento rápido para recalcular precios de partidos viejos
+        if st.button("🔄 Recalcular Precios de Todos Mis Partidos Anteriores"):
+            if recalcular_tarifas_usuario(user_id):
+                st.success("¡Tarifas recalculadas y actualizadas correctamente según los 5 tramos!")
+                st.rerun()
+            else:
+                st.error("Ocurrió un error al recalcular las tarifas.")
 
         # Formulario de registro de partidos con selección directa de Modalidad
         st.subheader("➕ Registrar Nuevo Partido")
@@ -771,7 +835,7 @@ else:
         with col_f_tiempo:
             tiempo_input = st.text_input("Tiempo de Ejecución", placeholder="HH:MM:SS (Ej: 02:20:00)")
 
-        # Lógica de asignación de tarifas según los 5 tramos (excluyendo en vivo del conteo)
+        # Lógica de asignación de tarifas según los 5 tramos
         tasas_v = obtener_tasas_globales()
         if "En Vivo NBA" in modalidad_sel:
             tipo_guardar = "en_vivo_nba"
