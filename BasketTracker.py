@@ -444,7 +444,7 @@ def recalcular_tarifas_usuario(usuario_id):
 
 
 def cargar_partidos(usuario_id):
-    # Auto-recalcular al cargar los partidos para asegurar integridad absoluta
+    # Auto-recalcular tarifas al cargar para mantener sincronización total
     recalcular_tarifas_usuario(usuario_id)
     
     conn = get_db_connection()
@@ -544,7 +544,7 @@ if not st.session_state.authenticated:
                         st.success(f"Bienvenido/a, {user_data['nombre']}")
                         st.rerun()
                     else:
-                        st.error("Usuario o contraseña incorrectos.")
+                        st.error("Usuario ou contraseña incorrectos.")
                 else:
                     st.warning("Complete todos los campos.")
 
@@ -611,7 +611,7 @@ else:
     # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO geremo01)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
-        st.title("👑 Panel de Administración Global (v2.10.2)")
+        st.title("👑 Panel de Administración Global (v2.10.3)")
         st.caption("Gestión general de usuarios, contraseñas y tabla de precios por partidos")
 
         tab_admin_tasas, tab_admin_usuarios, tab_admin_pass = st.tabs(
@@ -743,7 +743,7 @@ else:
         st.sidebar.markdown("---")
         st.sidebar.title("🔍 Filtros de Búsqueda")
         
-        # Opciones de filtro ampliadas para separar las dos quincenas claramente
+        # Opciones de filtro ampliadas
         periodo = st.sidebar.radio(
             "Seleccionar Período:",
             [
@@ -800,7 +800,7 @@ else:
         else:
             df_filtrado = pd.DataFrame()
 
-        st.title("🏀 BasketTracker Cloud v2.10.2")
+        st.title("🏀 BasketTracker Cloud v2.10.3")
         st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
         # Botón manual de refuerzo
