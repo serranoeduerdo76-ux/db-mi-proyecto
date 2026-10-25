@@ -15,6 +15,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+BUILD_HASH = "v2.12-AUTOCORRECCION"
+
 
 # =========================================================
 # 2. SEGURIDAD Y ENCRIPTACIÓN DE CONTRASEÑAS (SHA-256)
@@ -183,13 +185,13 @@ def actualizar_tasa_global(clave, nuevo_valor):
 
 def obtener_tarifa_unitaria(tipo_partido, cant_partidos=0):
     """
-    Regla de 5 tramos para partidos estándar (retroactiva por quincena):
+    Regla de 5 tramos RETROACTIVA por quincena:
     - 1 al 11: $6.00
     - 12 al 14: $6.50
     - 15 al 26: $7.00
     - 27 al 29: $7.50
     - 30+: $8.00
-    Los partidos en vivo NO usan tramos, usan tarifa fija.
+    Los partidos en vivo usan tarifa fija.
     """
     tasas = obtener_tasas_globales()
     if tipo_partido == "en_vivo_nba":
@@ -390,13 +392,13 @@ def obtener_conteo_quincena_por_fecha(usuario_id, fecha_ref):
 def recalcular_tarifas_usuario(usuario_id):
     """
     Recálculo RETROACTIVO por quincena:
-    - Cuenta el TOTAL de partidos estándar ('quincenal') de cada quincena.
+    - Cuenta el TOTAL de partidos estándar de cada quincena.
     - TODOS los estándar de esa quincena toman la tarifa del tramo:
-        1-11  -> tramo_1 ($6.00)
-        12-14 -> tramo_2 ($6.50)
-        15-26 -> tramo_3 ($7.00)
-        27-29 -> tramo_4 ($7.50)
-        30+   -> tramo_5 ($8.00)
+        1-11  -> $6.00
+        12-14 -> $6.50
+        15-26 -> $7.00
+        27-29 -> $7.50
+        30+   -> $8.00
     - Los partidos en vivo NO cuentan para el tramo y conservan su tarifa fija.
     """
     conn = get_db_connection()
@@ -411,29 +413,23 @@ def recalcular_tarifas_usuario(usuario_id):
         """, (usuario_id,))
         partidos = cur.fetchall()
 
-        # 1) Contar estándar por quincena
         conteo_quincenas = {}
         for p in partidos:
             tipo = p["tipo_partido"] if p["tipo_partido"] else "quincenal"
             if tipo != "quincenal":
                 continue
             f = p["fecha"]
-            if f.day <= 15:
-                q_key = (f.year, f.month, 1)
-            else:
-                q_key = (f.year, f.month, 2)
+            if not hasattr(f, "day"):
+                continue
+            q_key = (f.year, f.month, 1) if f.day <= 15 else (f.year, f.month, 2)
             conteo_quincenas[q_key] = conteo_quincenas.get(q_key, 0) + 1
 
-        # 2) Asignar tarifa
         actualizaciones = []
         for p in partidos:
             tipo = p["tipo_partido"] if p["tipo_partido"] else "quincenal"
             if tipo == "quincenal":
                 f = p["fecha"]
-                if f.day <= 15:
-                    q_key = (f.year, f.month, 1)
-                else:
-                    q_key = (f.year, f.month, 2)
+                q_key = (f.year, f.month, 1) if f.day <= 15 else (f.year, f.month, 2)
                 total_q = conteo_quincenas.get(q_key, 0)
                 nueva_tarifa = obtener_tarifa_unitaria("quincenal", total_q)
             else:
@@ -454,6 +450,53 @@ def recalcular_tarifas_usuario(usuario_id):
     except Exception as e:
         st.error(f"Error al recalcular tarifas: {e}")
         return False
+
+
+def verificar_y_autocorregir_tarifas(usuario_id, df_partidos):
+    """
+    Verifica si las tarifas estándar en BD coinciden con la regla retroactiva.
+    Si hay inconsistencias, recalcula automáticamente y devuelve True + df recargado.
+    Si todo está bien, devuelve False + el mismo df.
+    """
+    if df_partidos is None or df_partidos.empty:
+        return False, df_partidos
+
+    df_std = df_partidos[df_partidos["tipo_partido"] == "quincenal"].copy()
+    if df_std.empty:
+        return False, df_partidos
+
+    df_std["q_key"] = df_std["fecha"].apply(
+        lambda f: (f.year, f.month, 1) if f.day <= 15 else (f.year, f.month, 2)
+    )
+    conteo_q = df_std.groupby("q_key").size().to_dict()
+
+    tasas = obtener_tasas_globales()
+
+    def tarifa_esperada(qk):
+        n = conteo_q.get(qk, 0)
+        if n <= 11:
+            return tasas["tramo_1"]
+        elif n <= 14:
+            return tasas["tramo_2"]
+        elif n <= 26:
+            return tasas["tramo_3"]
+        elif n <= 29:
+            return tasas["tramo_4"]
+        else:
+            return tasas["tramo_5"]
+
+    df_std["tarifa_esperada"] = df_std["q_key"].apply(tarifa_esperada)
+    df_std["tarifa_actual"] = df_std["tarifa"].astype(float)
+
+    inconsistentes = int(
+        (df_std["tarifa_actual"].round(2) != df_std["tarifa_esperada"].round(2)).sum()
+    )
+
+    if inconsistentes > 0:
+        ok = recalcular_tarifas_usuario(usuario_id)
+        return ok, cargar_partidos(usuario_id)
+
+    return False, df_partidos
 
 
 def cargar_partidos(usuario_id):
@@ -531,6 +574,7 @@ if "user_info" not in st.session_state:
 if not st.session_state.authenticated:
     st.title("🏀 BasketTracker Cloud")
     st.caption("Sistema de Control Financiero y Registro de Partidos")
+    st.sidebar.caption(f"🧾 Build: `{BUILD_HASH}`")
 
     tab_login, tab_registro = st.tabs(
         ["🔑 Iniciar Sesión", "📝 Registrar Usuario"]
@@ -594,6 +638,7 @@ else:
 
     st.sidebar.write(f"👤 **Analista:** {user_name}")
     st.sidebar.caption(f"ID de Usuario: {user_id} | Username: {username_actual}")
+    st.sidebar.caption(f"🧾 Build: `{BUILD_HASH}`")
 
     if es_admin:
         st.sidebar.markdown("👑 **Rol:** Administrador Global (Exclusivo)")
@@ -619,7 +664,7 @@ else:
     # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO geremo01)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
-        st.title("👑 Panel de Administración Global (v2.10.6)")
+        st.title("👑 Panel de Administración Global (v2.12)")
         st.caption("Gestión general de usuarios, contraseñas y tabla de precios por partidos")
 
         tab_admin_tasas, tab_admin_usuarios, tab_admin_pass = st.tabs(
@@ -633,7 +678,7 @@ else:
             tasas_actuales = obtener_tasas_globales()
 
             with st.form("form_tasas_globales"):
-                st.markdown("##### 📌 Tramos Quincenales (Partidos Estándar)")
+                st.markdown("##### 📌 Tramos Quincenales (Partidos Estándar, retroactivos)")
                 col_t1, col_t2, col_t3, col_t4, col_t5 = st.columns(5)
                 with col_t1:
                     nuevo_t1 = st.number_input("Tramo 1 (1 - 11)", value=tasas_actuales["tramo_1"], step=0.25, format="%.2f")
@@ -777,7 +822,14 @@ else:
             mes_seleccionado_str = st.sidebar.selectbox("Mes", options=list(mes_nombres.values()), index=datetime.now().month - 1)
             mes_filtro = [k for k, v in mes_nombres.items() if v == mes_seleccionado_str][0]
 
+        # === CARGA + AUTOCORRECCIÓN AL ENTRAR ===
         df_todos = cargar_partidos(user_id)
+
+        # 🔧 Auto-corrección: si hay tarifas estándar inconsistentes con la regla
+        # retroactiva, se corrigen automáticamente SIN que el usuario haga nada.
+        hubo_correccion, df_todos = verificar_y_autocorregir_tarifas(user_id, df_todos)
+        if hubo_correccion:
+            st.toast("🔧 Se autocorrigieron tarifas desactualizadas (regla retroactiva).", icon="✅")
 
         if not df_todos.empty:
             today = date.today()
@@ -806,7 +858,7 @@ else:
         else:
             df_filtrado = pd.DataFrame()
 
-        st.title("🏀 BasketTracker Cloud v2.10.6")
+        st.title("🏀 BasketTracker Cloud v2.12")
         st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
         # Botón de recálculo manual
@@ -816,56 +868,6 @@ else:
                 st.rerun()
             else:
                 st.error("Error al recalcular las tarifas.")
-
-        # 🔍 PANEL DE DIAGNÓSTICO TEMPORAL (quítalo cuando todo funcione)
-        with st.expander("🔍 Diagnóstico temporal (para verificar el recálculo)"):
-            conn_dbg = get_db_connection()
-            if conn_dbg:
-                cur_dbg = conn_dbg.cursor(cursor_factory=RealDictCursor)
-                cur_dbg.execute("""
-                    SELECT id, fecha, tipo_partido, tarifa FROM partidos
-                    WHERE usuario_id = %s ORDER BY fecha ASC, id ASC;
-                """, (user_id,))
-                rows_dbg = cur_dbg.fetchall()
-                cur_dbg.close()
-                conn_dbg.close()
-
-                total_dbg = len(rows_dbg)
-                std_dbg = sum(1 for r in rows_dbg if (r["tipo_partido"] or "quincenal") == "quincenal")
-                vivo_dbg = total_dbg - std_dbg
-
-                # Conteo por quincena
-                q_count_dbg = {}
-                for r in rows_dbg:
-                    if (r["tipo_partido"] or "quincenal") != "quincenal":
-                        continue
-                    f = r["fecha"]
-                    qk = (f.year, f.month, 1) if f.day <= 15 else (f.year, f.month, 2)
-                    q_count_dbg[qk] = q_count_dbg.get(qk, 0) + 1
-
-                col_d1, col_d2, col_d3 = st.columns(3)
-                col_d1.metric("Total partidos", total_dbg)
-                col_d2.metric("Estándar", std_dbg)
-                col_d3.metric("En vivo", vivo_dbg)
-
-                st.write("**Conteo de estándar por quincena:**")
-                if q_count_dbg:
-                    for qk, cnt in sorted(q_count_dbg.items()):
-                        tramo_txt = "tramo_1" if cnt <= 11 else "tramo_2" if cnt <= 14 else "tramo_3" if cnt <= 26 else "tramo_4" if cnt <= 29 else "tramo_5"
-                        st.write(f"- {qk[0]}-{qk[1]:02d} (quincena {qk[2]}): **{cnt} partidos** → {tramo_txt}")
-                else:
-                    st.write("(sin partidos estándar)")
-
-                st.write("**Detalle de partidos:**")
-                st.dataframe(pd.DataFrame(rows_dbg), use_container_width=True)
-
-                # Verificación de la suma
-                suma_dbg = sum(float(r["tarifa"] or 0) for r in rows_dbg)
-                st.write(f"**Suma de tarifas en BD:** ${suma_dbg:.2f}")
-                std_sum = sum(float(r["tarifa"] or 0) for r in rows_dbg if (r["tipo_partido"] or "quincenal") == "quincenal")
-                vivo_sum = suma_dbg - std_sum
-                st.write(f"- Estándar: ${std_sum:.2f}")
-                st.write(f"- En vivo: ${vivo_sum:.2f}")
 
         # Formulario de registro
         st.subheader("➕ Registrar Nuevo Partido")
