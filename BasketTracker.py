@@ -370,10 +370,6 @@ def obtener_rango_quincena(fecha_ref):
 
 
 def obtener_conteo_quincena_por_fecha(usuario_id, fecha_ref):
-    """
-    Cuenta SOLO los partidos estándar de la quincena para calcular el tramo,
-    excluyendo explícitamente los partidos en vivo.
-    """
     inicio_q, fin_q = obtener_rango_quincena(fecha_ref)
     conn = get_db_connection()
     conteo = 0
@@ -395,40 +391,16 @@ def obtener_conteo_quincena_por_fecha(usuario_id, fecha_ref):
     return conteo
 
 
-def cargar_partidos(usuario_id):
-    conn = get_db_connection()
-    if not conn:
-        return pd.DataFrame()
-    try:
-        query = """
-            SELECT id, codigo_partido, fecha, tiempo_ejecucion, tarifa, tipo_partido, creado_en 
-            FROM partidos 
-            WHERE usuario_id = %s 
-            ORDER BY fecha ASC, id ASC;
-        """
-        df = pd.read_sql_query(query, conn, params=(usuario_id,))
-        conn.close()
-        if not df.empty:
-            df["tarifa"] = pd.to_numeric(df["tarifa"], errors="coerce").fillna(0.0)
-            df["fecha"] = pd.to_datetime(df["fecha"]).dt.date
-            df["tiempo_ejecucion"] = df["tiempo_ejecucion"].fillna("00:00:00").astype(str)
-            df["tipo_partido"] = df["tipo_partido"].fillna("quincenal")
-        return df
-    except Exception:
-        return pd.DataFrame()
-
-
 def recalcular_tarifas_usuario(usuario_id):
     """
     Recorre estrictamente en orden cronológico e ID todos los partidos del usuario 
-    y recalcula la tarifa exacta según los 5 tramos para los estándar, manteniendo los en vivo fijos.
+    y recalcula la tarifa exacta según los 5 tramos.
     """
     conn = get_db_connection()
     if not conn:
         return False
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        # Orden estricto por fecha y luego ID para respetar el orden real de registro
         cur.execute("""
             SELECT id, fecha, tipo_partido FROM partidos 
             WHERE usuario_id = %s 
@@ -469,6 +441,32 @@ def recalcular_tarifas_usuario(usuario_id):
     except Exception as e:
         st.error(f"Error al recalcular tarifas: {e}")
         return False
+
+
+def cargar_partidos(usuario_id):
+    # Auto-recalcular al cargar los partidos para asegurar integridad absoluta
+    recalcular_tarifas_usuario(usuario_id)
+    
+    conn = get_db_connection()
+    if not conn:
+        return pd.DataFrame()
+    try:
+        query = """
+            SELECT id, codigo_partido, fecha, tiempo_ejecucion, tarifa, tipo_partido, creado_en 
+            FROM partidos 
+            WHERE usuario_id = %s 
+            ORDER BY fecha ASC, id ASC;
+        """
+        df = pd.read_sql_query(query, conn, params=(usuario_id,))
+        conn.close()
+        if not df.empty:
+            df["tarifa"] = pd.to_numeric(df["tarifa"], errors="coerce").fillna(0.0)
+            df["fecha"] = pd.to_datetime(df["fecha"]).dt.date
+            df["tiempo_ejecucion"] = df["tiempo_ejecucion"].fillna("00:00:00").astype(str)
+            df["tipo_partido"] = df["tipo_partido"].fillna("quincenal")
+        return df
+    except Exception:
+        return pd.DataFrame()
 
 
 def guardar_partido(usuario_id, codigo, fecha_val, tiempo_val, tarifa_val, tipo_partido):
@@ -613,7 +611,7 @@ else:
     # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO geremo01)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
-        st.title("👑 Panel de Administración Global (v2.10.1)")
+        st.title("👑 Panel de Administración Global (v2.10.2)")
         st.caption("Gestión general de usuarios, contraseñas y tabla de precios por partidos")
 
         tab_admin_tasas, tab_admin_usuarios, tab_admin_pass = st.tabs(
@@ -749,12 +747,12 @@ else:
         periodo = st.sidebar.radio(
             "Seleccionar Período:",
             [
+                "Mostrar Todos",
                 "Hoy", 
                 "Esta Semana", 
                 "1ª Quincena (1 al 15)", 
                 "2ª Quincena (16 al Fin de Mes)", 
-                "Este Mes", 
-                "Mostrar Todos"
+                "Este Mes"
             ],
         )
 
@@ -802,16 +800,16 @@ else:
         else:
             df_filtrado = pd.DataFrame()
 
-        st.title("🏀 BasketTracker Cloud v2.10.1")
+        st.title("🏀 BasketTracker Cloud v2.10.2")
         st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
-        # Botón de mantenimiento rápido para recalcular precios de partidos viejos
-        if st.button("🔄 Recalcular Precios de Todos Mis Partidos Anteriores"):
+        # Botón manual de refuerzo
+        if st.button("🔄 Forzar Recálculo de Tarifas en Base de Datos"):
             if recalcular_tarifas_usuario(user_id):
-                st.success("¡Tarifas recalculadas y actualizadas correctamente según los 5 tramos!")
+                st.success("¡Tarifas recalculadas con éxito en la base de datos!")
                 st.rerun()
             else:
-                st.error("Ocurrió un error al recalcular las tarifas.")
+                st.error("Error al recalcular las tarifas.")
 
         # Formulario de registro de partidos con selección directa de Modalidad
         st.subheader("➕ Registrar Nuevo Partido")
