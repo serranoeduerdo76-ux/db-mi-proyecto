@@ -194,6 +194,7 @@ def obtener_tarifa_unitaria(tipo_partido, cant_partidos=0):
     - 15 al 26: $7.00
     - 27 al 29: $7.50
     - 30+: $8.00
+    Los partidos en vivo NO usan tramos, usan tarifa fija.
     """
     tasas = obtener_tasas_globales()
     if tipo_partido == "en_vivo_nba":
@@ -395,6 +396,9 @@ def recalcular_tarifas_usuario(usuario_id):
     """
     Recorre estrictamente en orden cronológico por quincena todos los partidos del usuario 
     y actualiza de forma forzosa la tarifa exacta según los tramos.
+    - Los partidos 'quincenal' se cuentan y se tarifican por tramo.
+    - Los partidos en vivo ('en_vivo_normal', 'en_vivo_nba') NO cuentan para los tramos
+      y conservan su tarifa fija (solo suman al total de ganancias).
     """
     conn = get_db_connection()
     if not conn:
@@ -409,6 +413,7 @@ def recalcular_tarifas_usuario(usuario_id):
         partidos = cur.fetchall()
         
         conteo_quincenas = {}
+        actualizaciones = []
         
         for p in partidos:
             f = p["fecha"]
@@ -426,14 +431,18 @@ def recalcular_tarifas_usuario(usuario_id):
                 num_actual = conteo_quincenas[q_key]
                 nueva_tarifa = obtener_tarifa_unitaria("quincenal", num_actual)
             else:
+                # En vivo: tarifa fija, no afecta el conteo estándar
                 nueva_tarifa = obtener_tarifa_unitaria(tipo, 0)
                 
-            cur_upd = conn.cursor()
+            actualizaciones.append((nueva_tarifa, p["id"]))
+        
+        cur_upd = conn.cursor()
+        for tarifa, pid in actualizaciones:
             cur_upd.execute("""
                 UPDATE partidos SET tarifa = %s WHERE id = %s;
-            """, (nueva_tarifa, p["id"]))
-            cur_upd.close()
-            
+            """, (tarifa, pid))
+        cur_upd.close()
+        
         conn.commit()
         cur.close()
         conn.close()
@@ -856,6 +865,10 @@ else:
                     tarifa_sugerida,
                     tipo_guardar,
                 ):
+                    # 🔧 CAMBIO CLAVE: recalcular toda la tabla del usuario
+                    # para que los tramos estándar queden coherentes al instante.
+                    # Los partidos en vivo conservan su tarifa fija y no alteran los tramos.
+                    recalcular_tarifas_usuario(user_id)
                     st.success(f"✅ Partido '{codigo_input}' guardado exitosamente como {tipo_guardar.upper()}.")
                     st.rerun()
 
