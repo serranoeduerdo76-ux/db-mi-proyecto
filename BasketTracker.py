@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-BUILD_HASH = "v2.12-AUTOCORRECCION"
+BUILD_HASH = "v2.13-EDIT-DELETE"
 
 
 # =========================================================
@@ -393,12 +393,7 @@ def recalcular_tarifas_usuario(usuario_id):
     """
     Recálculo RETROACTIVO por quincena:
     - Cuenta el TOTAL de partidos estándar de cada quincena.
-    - TODOS los estándar de esa quincena toman la tarifa del tramo:
-        1-11  -> $6.00
-        12-14 -> $6.50
-        15-26 -> $7.00
-        27-29 -> $7.50
-        30+   -> $8.00
+    - TODOS los estándar de esa quincena toman la tarifa del tramo.
     - Los partidos en vivo NO cuentan para el tramo y conservan su tarifa fija.
     """
     conn = get_db_connection()
@@ -544,6 +539,34 @@ def guardar_partido(usuario_id, codigo, fecha_val, tiempo_val, tarifa_val, tipo_
     return False
 
 
+def actualizar_partido(id_partido, usuario_id, codigo, fecha_val, tiempo_val, tarifa_val, tipo_partido):
+    """Actualiza un partido existente. Solo toca esa fila; el recálculo global lo hace el llamador."""
+    conn = get_db_connection()
+    if conn:
+        try:
+            cur = conn.cursor()
+            tiempo_formateado = normalizar_formato_tiempo(tiempo_val)
+            cur.execute(
+                """
+                UPDATE partidos
+                SET codigo_partido = %s,
+                    fecha = %s,
+                    tiempo_ejecucion = %s,
+                    tarifa = %s,
+                    tipo_partido = %s
+                WHERE id = %s AND usuario_id = %s;
+                """,
+                (codigo, fecha_val, tiempo_formateado, tarifa_val, tipo_partido, id_partido, usuario_id),
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+            return True
+        except Exception:
+            return False
+    return False
+
+
 def eliminar_partido(id_partido, usuario_id):
     conn = get_db_connection()
     if conn:
@@ -664,7 +687,7 @@ else:
     # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO geremo01)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
-        st.title("👑 Panel de Administración Global (v2.12)")
+        st.title("👑 Panel de Administración Global (v2.13)")
         st.caption("Gestión general de usuarios, contraseñas y tabla de precios por partidos")
 
         tab_admin_tasas, tab_admin_usuarios, tab_admin_pass = st.tabs(
@@ -825,8 +848,6 @@ else:
         # === CARGA + AUTOCORRECCIÓN AL ENTRAR ===
         df_todos = cargar_partidos(user_id)
 
-        # 🔧 Auto-corrección: si hay tarifas estándar inconsistentes con la regla
-        # retroactiva, se corrigen automáticamente SIN que el usuario haga nada.
         hubo_correccion, df_todos = verificar_y_autocorregir_tarifas(user_id, df_todos)
         if hubo_correccion:
             st.toast("🔧 Se autocorrigieron tarifas desactualizadas (regla retroactiva).", icon="✅")
@@ -858,7 +879,7 @@ else:
         else:
             df_filtrado = pd.DataFrame()
 
-        st.title("🏀 BasketTracker Cloud v2.12")
+        st.title("🏀 BasketTracker Cloud v2.13")
         st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
         # Botón de recálculo manual
@@ -923,6 +944,83 @@ else:
                     recalcular_tarifas_usuario(user_id)
                     st.success(f"✅ Partido '{codigo_input}' guardado exitosamente como {tipo_guardar.upper()}.")
                     st.rerun()
+
+        # =====================================================
+        # ✏️ CORREGIR / 🗑️ ELIMINAR UN PARTIDO EXISTENTE
+        # =====================================================
+        st.markdown("---")
+        st.subheader("✏️ Corregir / 🗑️ Eliminar Partido Existente")
+        st.caption("Solo se modifica el partido seleccionado. Después se reajustan las tarifas de la quincena si el total cruza un tramo.")
+
+        df_edit = cargar_partidos(user_id)
+
+        if df_edit.empty:
+            st.info("No hay partidos registrados para corregir o eliminar.")
+        else:
+            opciones_partido = {
+                f"#{row['id']} | {row['codigo_partido']} | {row['fecha']} | {row['tipo_partido']} | ${float(row['tarifa']):.2f}": row["id"]
+                for _, row in df_edit.iterrows()
+            }
+            seleccion_partido = st.selectbox(
+                "Selecciona el partido:",
+                options=list(opciones_partido.keys()),
+                key="sel_partido_editar",
+            )
+            id_sel = opciones_partido[seleccion_partido]
+
+            fila_sel = df_edit[df_edit["id"] == id_sel].iloc[0]
+
+            tipo_map = {
+                "🏀 Quincenal Estándar": "quincenal",
+                "⚡ En Vivo Normal": "en_vivo_normal",
+                "🔥 En Vivo NBA": "en_vivo_nba",
+            }
+            tipos_validos = list(tipo_map.values())
+            tipo_actual = fila_sel["tipo_partido"] if fila_sel["tipo_partido"] in tipos_validos else "quincenal"
+            idx_tipo = tipos_validos.index(tipo_actual)
+
+            with st.form("form_editar_partido"):
+                col_e1, col_e2 = st.columns(2)
+                with col_e1:
+                    edit_codigo = st.text_input("Código del Partido", value=str(fila_sel["codigo_partido"]))
+                    edit_fecha = st.date_input("Fecha", value=fila_sel["fecha"])
+                with col_e2:
+                    edit_tiempo = st.text_input("Tiempo de Ejecución", value=str(fila_sel["tiempo_ejecucion"]))
+                    edit_tipo_label = st.selectbox("Modalidad", list(tipo_map.keys()), index=idx_tipo)
+                    edit_tipo = tipo_map[edit_tipo_label]
+
+                confirmar_borrado = st.checkbox(
+                    "✔️ Confirmo que quiero eliminar este partido (si marcas esto y pulsas Eliminar, se borra de la BD)."
+                )
+
+                col_b1, col_b2 = st.columns(2)
+                with col_b1:
+                    btn_guardar_edit = st.form_submit_button("💾 Guardar Corrección", use_container_width=True)
+                with col_b2:
+                    btn_eliminar_edit = st.form_submit_button("🗑️ Eliminar Partido", use_container_width=True)
+
+                if btn_guardar_edit:
+                    tarifa_provisional = float(fila_sel["tarifa"])
+                    if actualizar_partido(
+                        id_sel, user_id, edit_codigo.strip(), edit_fecha,
+                        edit_tiempo.strip(), tarifa_provisional, edit_tipo,
+                    ):
+                        recalcular_tarifas_usuario(user_id)
+                        st.success(f"✅ Partido #{id_sel} corregido y tarifas reajustadas.")
+                        st.rerun()
+                    else:
+                        st.error("❌ No se pudo actualizar el partido.")
+
+                if btn_eliminar_edit:
+                    if not confirmar_borrado:
+                        st.warning("⚠️ Marca la casilla de confirmación para eliminar.")
+                    else:
+                        if eliminar_partido(id_sel, user_id):
+                            recalcular_tarifas_usuario(user_id)
+                            st.success(f"✅ Partido #{id_sel} eliminado y tarifas reajustadas.")
+                            st.rerun()
+                        else:
+                            st.error("❌ No se pudo eliminar el partido.")
 
         st.markdown("---")
 
