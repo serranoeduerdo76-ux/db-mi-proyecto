@@ -400,7 +400,7 @@ def cargar_partidos(usuario_id):
         if not df.empty:
             df["tarifa"] = pd.to_numeric(df["tarifa"], errors="coerce").fillna(0.0)
             df["fecha"] = pd.to_datetime(df["fecha"]).dt.date
-            df["tiempo_ejecucion"] = df["tiempo_ejecucion"].fillna("00:00:00")
+            df["tiempo_ejecucion"] = df["tiempo_ejecucion"].fillna("00:00:00").astype(str)
             df["tipo_partido"] = df["tipo_partido"].fillna("quincenal")
         return df
     except Exception:
@@ -549,7 +549,7 @@ else:
     # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO geremo01)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
-        st.title("👑 Panel de Administración Global (v2.9.5)")
+        st.title("👑 Panel de Administración Global (v2.9.6)")
         st.caption("Gestión general de usuarios, contraseñas y tabla de precios por partidos")
 
         tab_admin_tasas, tab_admin_usuarios, tab_admin_pass = st.tabs(
@@ -735,7 +735,7 @@ else:
         else:
             df_filtrado = pd.DataFrame()
 
-        st.title("🏀 BasketTracker Cloud v2.9.5")
+        st.title("🏀 BasketTracker Cloud v2.9.6")
         st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
         # Formulario de registro de partidos con selección directa de Modalidad
@@ -838,7 +838,7 @@ else:
 
             df_display["Modalidad"] = df_display["tipo_partido"].apply(formato_tipo)
             
-            # Normalizar la visualización de la columna de tiempos en la tabla
+            # Normalizar visualización de la columna de tiempos en la tabla
             df_display["tiempo_ejecucion"] = df_display["tiempo_ejecucion"].apply(normalizar_formato_tiempo)
             df_display["tarifa_fmt"] = df_display["tarifa"].apply(lambda x: f"${float(x):.2f}")
 
