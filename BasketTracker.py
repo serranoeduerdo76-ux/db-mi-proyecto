@@ -91,12 +91,13 @@ def init_db():
                 );
             """)
 
-            # Valores por defecto de tasas de pago
+            # Valores por defecto de tasas de pago (5 Tramos Estándar actualizados)
             default_tasa = [
                 ("tasa_tramo_1", 6.00),
                 ("tasa_tramo_2", 6.50),
                 ("tasa_tramo_3", 7.00),
-                ("tasa_tramo_4", 8.00),
+                ("tasa_tramo_4", 7.50),
+                ("tasa_tramo_5", 8.00),
                 ("tasa_en_vivo_normal", 12.00),
                 ("tasa_en_vivo_nba", 18.50),
             ]
@@ -124,7 +125,7 @@ init_db()
 
 
 # =========================================================
-# 5. FUNCIONES DE CONFIGURACIÓN Y TARIFAS DINÁMICAS
+# 5. FUNCIONES DE CONFIGURACIÓN Y TARIFA DINÁMICA (5 TRAMOS)
 # =========================================================
 def obtener_tasas_globales():
     conn = get_db_connection()
@@ -132,7 +133,8 @@ def obtener_tasas_globales():
         "tramo_1": 6.00,
         "tramo_2": 6.50,
         "tramo_3": 7.00,
-        "tramo_4": 8.00,
+        "tramo_4": 7.50,
+        "tramo_5": 8.00,
         "en_vivo_normal": 12.00,
         "en_vivo_nba": 18.50,
     }
@@ -150,6 +152,8 @@ def obtener_tasas_globales():
                     tasas["tramo_3"] = float(r["valor"])
                 elif r["clave"] == "tasa_tramo_4":
                     tasas["tramo_4"] = float(r["valor"])
+                elif r["clave"] == "tasa_tramo_5":
+                    tasas["tramo_5"] = float(r["valor"])
                 elif r["clave"] == "tasa_en_vivo_normal":
                     tasas["en_vivo_normal"] = float(r["valor"])
                 elif r["clave"] == "tasa_en_vivo_nba":
@@ -183,6 +187,14 @@ def actualizar_tasa_global(clave, nuevo_valor):
 
 
 def obtener_tarifa_unitaria(tipo_partido, cant_partidos=0):
+    """
+    Regla estricta de 5 tramos para partidos estándar:
+    - 1 al 11: $6.00
+    - 12 al 14: $6.50
+    - 15 al 26: $7.00
+    - 27 al 29: $7.50
+    - 30+: $8.00
+    """
     tasas = obtener_tasas_globales()
     if tipo_partido == "en_vivo_nba":
         return tasas["en_vivo_nba"]
@@ -193,19 +205,18 @@ def obtener_tarifa_unitaria(tipo_partido, cant_partidos=0):
             return tasas["tramo_1"]
         elif cant_partidos <= 14:
             return tasas["tramo_2"]
-        elif cant_partidos <= 29:
+        elif cant_partidos <= 26:
             return tasas["tramo_3"]
-        else:
+        elif cant_partidos <= 29:
             return tasas["tramo_4"]
+        else:
+            return tasas["tramo_5"]
 
 
 # =========================================================
 # 6. FUNCIONES AUXILIARES Y MANEJO INTELIGENTE DE TIEMPOS
 # =========================================================
 def normalizar_formato_tiempo(tiempo_str):
-    """
-    Convierte cadenas como '020225' o '20225' automáticamente a '02:02:25'
-    """
     if not tiempo_str or not isinstance(tiempo_str, str):
         return "00:00:00"
     
@@ -213,9 +224,8 @@ def normalizar_formato_tiempo(tiempo_str):
     if ":" in t:
         return t
     
-    # Si ingresaron solo dígitos (ej. 020225)
     if t.isdigit():
-        t = t.zfill(6) # Asegura 6 dígitos (020225)
+        t = t.zfill(6)
         if len(t) == 6:
             hh, mm, ss = t[:2], t[2:4], t[4:6]
             return f"{hh}:{mm}:{ss}"
@@ -224,9 +234,6 @@ def normalizar_formato_tiempo(tiempo_str):
 
 
 def sumar_tiempos(lista_tiempos):
-    """
-    Suma tiempos en segundos tolerando formatos con o sin dos puntos (HH:MM:SS)
-    """
     total_segundos = 0
     for t in lista_tiempos:
         if not t or not isinstance(t, str):
@@ -363,6 +370,10 @@ def obtener_rango_quincena(fecha_ref):
 
 
 def obtener_conteo_quincena_por_fecha(usuario_id, fecha_ref):
+    """
+    Cuenta SOLO los partidos estándar de la quincena para calcular el tramo,
+    excluyendo explícitamente los partidos en vivo.
+    """
     inicio_q, fin_q = obtener_rango_quincena(fecha_ref)
     conn = get_db_connection()
     conteo = 0
@@ -549,7 +560,7 @@ else:
     # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO geremo01)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
-        st.title("👑 Panel de Administración Global (v2.9.6)")
+        st.title("👑 Panel de Administración Global (v2.9.8)")
         st.caption("Gestión general de usuarios, contraseñas y tabla de precios por partidos")
 
         tab_admin_tasas, tab_admin_usuarios, tab_admin_pass = st.tabs(
@@ -564,15 +575,17 @@ else:
 
             with st.form("form_tasas_globales"):
                 st.markdown("##### 📌 Tramos Quincenales (Partidos Estándar)")
-                col_t1, col_t2, col_t3, col_t4 = st.columns(4)
+                col_t1, col_t2, col_t3, col_t4, col_t5 = st.columns(5)
                 with col_t1:
-                    nuevo_t1 = st.number_input("Tramo 1 (1 - 11 Juegos)", value=tasas_actuales["tramo_1"], step=0.25, format="%.2f")
+                    nuevo_t1 = st.number_input("Tramo 1 (1 - 11)", value=tasas_actuales["tramo_1"], step=0.25, format="%.2f")
                 with col_t2:
-                    nuevo_t2 = st.number_input("Tramo 2 (12 - 14 Juegos)", value=tasas_actuales["tramo_2"], step=0.25, format="%.2f")
+                    nuevo_t2 = st.number_input("Tramo 2 (12 - 14)", value=tasas_actuales["tramo_2"], step=0.25, format="%.2f")
                 with col_t3:
-                    nuevo_t3 = st.number_input("Tramo 3 (15 - 29 Juegos)", value=tasas_actuales["tramo_3"], step=0.25, format="%.2f")
+                    nuevo_t3 = st.number_input("Tramo 3 (15 - 26)", value=tasas_actuales["tramo_3"], step=0.25, format="%.2f")
                 with col_t4:
-                    nuevo_t4 = st.number_input("Tramo 4 (30+ Juegos)", value=tasas_actuales["tramo_4"], step=0.25, format="%.2f")
+                    nuevo_t4 = st.number_input("Tramo 4 (27 - 29)", value=tasas_actuales["tramo_4"], step=0.25, format="%.2f")
+                with col_t5:
+                    nuevo_t5 = st.number_input("Tramo 5 (30+)", value=tasas_actuales["tramo_5"], step=0.25, format="%.2f")
 
                 st.markdown("##### ⚡ Partidos Especiales / En Vivo")
                 col_v1, col_v2 = st.columns(2)
@@ -587,6 +600,7 @@ else:
                     actualizar_tasa_global("tasa_tramo_2", nuevo_t2)
                     actualizar_tasa_global("tasa_tramo_3", nuevo_t3)
                     actualizar_tasa_global("tasa_tramo_4", nuevo_t4)
+                    actualizar_tasa_global("tasa_tramo_5", nuevo_t5)
                     actualizar_tasa_global("tasa_en_vivo_normal", nuevo_v_norm)
                     actualizar_tasa_global("tasa_en_vivo_nba", nuevo_v_nba)
                     st.success("✅ ¡Tabla de precios actualizada con éxito!")
@@ -735,7 +749,7 @@ else:
         else:
             df_filtrado = pd.DataFrame()
 
-        st.title("🏀 BasketTracker Cloud v2.9.6")
+        st.title("🏀 BasketTracker Cloud v2.9.8")
         st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
         # Formulario de registro de partidos con selección directa de Modalidad
@@ -757,23 +771,23 @@ else:
         with col_f_tiempo:
             tiempo_input = st.text_input("Tiempo de Ejecución", placeholder="HH:MM:SS (Ej: 02:20:00)")
 
-        # Lógica de asignación de tarifas
+        # Lógica de asignación de tarifas según los 5 tramos (excluyendo en vivo del conteo)
         tasas_v = obtener_tasas_globales()
         if "En Vivo NBA" in modalidad_sel:
             tipo_guardar = "en_vivo_nba"
             tarifa_sugerida = tasas_v["en_vivo_nba"]
-            st.info(f"🔥 **Modalidad En Vivo NBA:** Se asignará una tarifa fija de **${tarifa_sugerida:.2f}** a este partido.")
+            st.info(f"🔥 **Modalidad En Vivo NBA:** Tarifa fija de **${tarifa_sugerida:.2f}** (No afecta los tramos del tabulador estándar).")
         elif "En Vivo Normal" in modalidad_sel:
             tipo_guardar = "en_vivo_normal"
             tarifa_sugerida = tasas_v["en_vivo_normal"]
-            st.info(f"⚡ **Modalidad En Vivo Normal:** Se asignará una tarifa fija de **${tarifa_sugerida:.2f}** a este partido.")
+            st.info(f"⚡ **Modalidad En Vivo Normal:** Tarifa fija de **${tarifa_sugerida:.2f}** (No afecta los tramos del tabulador estándar).")
         else:
             tipo_guardar = "quincenal"
             conteo_quincena_form = obtener_conteo_quincena_por_fecha(user_id, fecha_input)
             siguiente_numero = conteo_quincena_form + 1
             tarifa_sugerida = obtener_tarifa_unitaria("quincenal", siguiente_numero)
             st.info(
-                f"💡 **Tabulador Quincenal Estándar:** Corresponde al **Partido #{siguiente_numero}** de la quincena. "
+                f"💡 **Tabulador Quincenal Estándar:** Es el **Partido estándar #{siguiente_numero}** de esta quincena. "
                 f"Tarifa unitaria recomendada: **${tarifa_sugerida:.2f}**"
             )
 
