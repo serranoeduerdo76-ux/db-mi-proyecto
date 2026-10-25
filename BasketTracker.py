@@ -393,8 +393,8 @@ def obtener_conteo_quincena_por_fecha(usuario_id, fecha_ref):
 
 def recalcular_tarifas_usuario(usuario_id):
     """
-    Recorre estrictamente en orden cronológico e ID todos los partidos del usuario 
-    y recalcula la tarifa exacta según los tramos quincenales.
+    Recorre estrictamente en orden cronológico por quincena todos los partidos del usuario 
+    y actualiza de forma forzosa la tarifa exacta según los tramos.
     """
     conn = get_db_connection()
     if not conn:
@@ -444,7 +444,6 @@ def recalcular_tarifas_usuario(usuario_id):
 
 
 def cargar_partidos(usuario_id):
-    # Carga rápida optimizada: sin bloqueos en el hilo principal
     conn = get_db_connection()
     if not conn:
         return pd.DataFrame()
@@ -609,7 +608,7 @@ else:
     # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO geremo01)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
-        st.title("👑 Panel de Administración Global (v2.10.5)")
+        st.title("👑 Panel de Administración Global (v2.10.6)")
         st.caption("Gestión general de usuarios, contraseñas y tabla de precios por partidos")
 
         tab_admin_tasas, tab_admin_usuarios, tab_admin_pass = st.tabs(
@@ -796,11 +795,11 @@ else:
         else:
             df_filtrado = pd.DataFrame()
 
-        st.title("🏀 BasketTracker Cloud v2.10.5")
+        st.title("🏀 BasketTracker Cloud v2.10.6")
         st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
-        # Botón manual de recálculo de tarifas para alcanzar los $105 exactos
-        if st.button("🔄 Recalcular Tarifas de Partidos Anteriores ($105)"):
+        # Botón de recálculo manual rápido y optimizado
+        if st.button("🔄 Forzar Recálculo de Tarifas en Base de Datos"):
             if recalcular_tarifas_usuario(user_id):
                 st.success("¡Tarifas recalculadas con éxito en la base de datos!")
                 st.rerun()
