@@ -394,7 +394,7 @@ def obtener_conteo_quincena_por_fecha(usuario_id, fecha_ref):
 def recalcular_tarifas_usuario(usuario_id):
     """
     Recorre estrictamente en orden cronológico e ID todos los partidos del usuario 
-    y recalcula la tarifa exacta según los 5 tramos.
+    y recalcula la tarifa exacta según los tramos quincenales.
     """
     conn = get_db_connection()
     if not conn:
@@ -444,9 +444,7 @@ def recalcular_tarifas_usuario(usuario_id):
 
 
 def cargar_partidos(usuario_id):
-    # Auto-recalcular tarifas al cargar para mantener sincronización total
-    recalcular_tarifas_usuario(usuario_id)
-    
+    # Carga rápida optimizada: sin bloqueos en el hilo principal
     conn = get_db_connection()
     if not conn:
         return pd.DataFrame()
@@ -544,7 +542,7 @@ if not st.session_state.authenticated:
                         st.success(f"Bienvenido/a, {user_data['nombre']}")
                         st.rerun()
                     else:
-                        st.error("Usuario ou contraseña incorrectos.")
+                        st.error("Usuario o contraseña incorrectos.")
                 else:
                     st.warning("Complete todos los campos.")
 
@@ -611,7 +609,7 @@ else:
     # VISTA: PANEL DE ADMINISTRACIÓN GLOBAL (SOLO geremo01)
     # =========================================================
     if es_admin and modo_vista == "👑 Panel de Administración Global":
-        st.title("👑 Panel de Administración Global (v2.10.3)")
+        st.title("👑 Panel de Administración Global (v2.10.5)")
         st.caption("Gestión general de usuarios, contraseñas y tabla de precios por partidos")
 
         tab_admin_tasas, tab_admin_usuarios, tab_admin_pass = st.tabs(
@@ -743,7 +741,6 @@ else:
         st.sidebar.markdown("---")
         st.sidebar.title("🔍 Filtros de Búsqueda")
         
-        # Opciones de filtro ampliadas
         periodo = st.sidebar.radio(
             "Seleccionar Período:",
             [
@@ -756,7 +753,6 @@ else:
             ],
         )
 
-        # Selector de mes y año para las quincenas
         mes_filtro = datetime.now().month
         ano_filtro = datetime.now().year
         if "Quincena" in periodo:
@@ -800,11 +796,11 @@ else:
         else:
             df_filtrado = pd.DataFrame()
 
-        st.title("🏀 BasketTracker Cloud v2.10.3")
+        st.title("🏀 BasketTracker Cloud v2.10.5")
         st.caption(f"Panel de Trabajo | Operador: {user_name}")
 
-        # Botón manual de refuerzo
-        if st.button("🔄 Forzar Recálculo de Tarifas en Base de Datos"):
+        # Botón manual de recálculo de tarifas para alcanzar los $105 exactos
+        if st.button("🔄 Recalcular Tarifas de Partidos Anteriores ($105)"):
             if recalcular_tarifas_usuario(user_id):
                 st.success("¡Tarifas recalculadas con éxito en la base de datos!")
                 st.rerun()
@@ -830,16 +826,15 @@ else:
         with col_f_tiempo:
             tiempo_input = st.text_input("Tiempo de Ejecución", placeholder="HH:MM:SS (Ej: 02:20:00)")
 
-        # Lógica de asignación de tarifas según los 5 tramos
         tasas_v = obtener_tasas_globales()
         if "En Vivo NBA" in modalidad_sel:
             tipo_guardar = "en_vivo_nba"
             tarifa_sugerida = tasas_v["en_vivo_nba"]
-            st.info(f"🔥 **Modalidad En Vivo NBA:** Tarifa fija de **${tarifa_sugerida:.2f}** (No afecta los tramos del tabulador estándar).")
+            st.info(f"🔥 **Modalidad En Vivo NBA:** Tarifa fija de **${tarifa_sugerida:.2f}**.")
         elif "En Vivo Normal" in modalidad_sel:
             tipo_guardar = "en_vivo_normal"
             tarifa_sugerida = tasas_v["en_vivo_normal"]
-            st.info(f"⚡ **Modalidad En Vivo Normal:** Tarifa fija de **${tarifa_sugerida:.2f}** (No afecta los tramos del tabulador estándar).")
+            st.info(f"⚡ **Modalidad En Vivo Normal:** Tarifa fija de **${tarifa_sugerida:.2f}**.")
         else:
             tipo_guardar = "quincenal"
             conteo_quincena_form = obtener_conteo_quincena_por_fecha(user_id, fecha_input)
@@ -867,9 +862,6 @@ else:
 
         st.markdown("---")
 
-        # ---------------------------------------------------------
-        # MÉTRICAS Y TOTALES (CÁLCULO EXACTO POR REGISTROS)
-        # ---------------------------------------------------------
         cant_partidos = len(df_filtrado)
 
         total_cobrar = 0.0
@@ -911,7 +903,6 @@ else:
 
             df_display["Modalidad"] = df_display["tipo_partido"].apply(formato_tipo)
             
-            # Normalizar visualización de la columna de tiempos en la tabla
             df_display["tiempo_ejecucion"] = df_display["tiempo_ejecucion"].apply(normalizar_formato_tiempo)
             df_display["tarifa_fmt"] = df_display["tarifa"].apply(lambda x: f"${float(x):.2f}")
 
